@@ -35,10 +35,9 @@ func main() {
 	// config.DB.AutoMigrate(&models.User{}, &models.Post{})
 
 	error := config.DB.AutoMigrate(
-		&models.AppUser{},    // parent
-		&models.Device{},     // child
-		&models.VaultEntry{}, // child
-	)
+		&models.AppUser{},
+		&models.Device{},
+		&models.VaultEntry{})
 	if error != nil {
 		log.Fatal("Migration failed:", err)
 	}
@@ -52,7 +51,7 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080" // default port
+		port = "8080"
 	}
 
 	app.Listen(":" + port)

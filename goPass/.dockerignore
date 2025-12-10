@@ -1,0 +1,29 @@
+
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Vendor directory (if using Go modules, optional)
+vendor/
+
+# Dependency directories
+node_modules/
+dist/
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+#
+

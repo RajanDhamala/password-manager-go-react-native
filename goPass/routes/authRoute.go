@@ -1,9 +1,9 @@
 package router
 
 import (
-	"goPass/controller"
-
 	"github.com/gofiber/fiber/v2"
+	"goPass/controller"
+	"goPass/middlewares"
 )
 
 func AuthRoute(app *fiber.App) {
@@ -14,5 +14,7 @@ func AuthRoute(app *fiber.App) {
 	})
 
 	AuthRouter.Post("/register", controller.RegisterAppUser)
-
+	AuthRouter.Post("/login", controller.LoginAppUser)
+	AuthRouter.Get("/profile", middleware.AuthAppUser, controller.AppGetProfile)
+	AuthRouter.Get("/refresh", controller.RefreshAppToken)
 }

@@ -1,13 +1,14 @@
 package controller
 
 import (
+	"log"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"goPass/config"
 	"goPass/models"
-	// "goPass/utils"
-
+	"goPass/utils"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -90,16 +91,58 @@ func LoginAppUser(c *fiber.Ctx) error {
 			"error": "invalid credentials",
 		})
 	}
-	// accessToken, _ := utils.AppAccessToken(user.ID)
-	// refreshToken, _ := utils.AppRefreshToken(user.ID)
+	accessToken, _ := utils.CreateAppAccessToken(user.ID)
+	refreshToken, _ := utils.CreateAppRefreshToken(user.ID)
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"message": "user logged in succesfully",
-		// "accessToken":  accessToken,
-		// "refreshToken": refreshToken,
+		"message":      "user logged in succesfully",
+		"accessToken":  accessToken,
+		"refreshToken": refreshToken,
+	})
+}
+
+func AppGetProfile(c *fiber.Ctx) error {
+	id := c.Locals("id")
+	data := models.AppUser{}
+	if err := config.DB.Where("id=?", id).First(&data).Error; err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"err": "user not found",
+		})
+	}
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "succesfully fetched profile",
+		"data":    data,
 	})
 }
 
 func ForgotPassword(c *fiber.Ctx) error {
 	return c.SendString("hello")
+}
+
+func RefreshAppToken(c *fiber.Ctx) error {
+	log.Println("refresh route called my frined")
+	authHeader := c.Get("Authorization")
+	if authHeader == "" || len(authHeader) < 7 || authHeader[:7] != "Bearer " {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Missing or invalid Authorization header",
+		})
+	}
+
+	bearerToken := authHeader[7:]
+
+	data, err := utils.VerifyRefreshToken(bearerToken)
+	if err != nil {
+		return c.Status(fiber.ErrBadRequest.Code).JSON(fiber.Map{
+			"error": "invalid token",
+		})
+	}
+	newAccessToken, err := utils.CreateAppAccessToken(data.Id)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "invalid token generation",
+		})
+	}
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"newToken": newAccessToken,
+	})
 }

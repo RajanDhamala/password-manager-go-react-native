@@ -9,16 +9,21 @@ import (
 )
 
 type AppUser struct {
-	ID             uuid.UUID `gorm:"type:uuid;primaryKey"`
-	Email          string    `gorm:"unique;not null;index"`
-	Password       string    `gorm:"not null"`
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	DeletedAt      gorm.DeletedAt `gorm:"index"`
-	Devices        []Device       `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
-	VaultEntries   []VaultEntry   `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
-	FullName       string         `gorm:"not null"`
-	ProfilePicture string
+	ID                 uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Email              string    `gorm:"unique;not null;index"`
+	Password           string    `gorm:"not null"`
+	MasterPasswordHash string    `gorm:"default:''"`
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	DeletedAt          gorm.DeletedAt `gorm:"index"`
+	Devices            []Device       `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	VaultEntries       []VaultEntry   `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	FullName           string         `gorm:"not null"`
+	ProfilePicture     string
+	AesHashKeyMaster   datatypes.JSON `gorm:"type:jsonb;default:'{}'::jsonb"`
+	MasterSalt         string         `gorm:"default:''"`
+	AesHashKeyRecovery datatypes.JSON `gorm:"type:jsonb;default:'{}'::jsonb"`
+	RecoverySalt       string         `gorm:"default:''"`
 }
 
 type Device struct {

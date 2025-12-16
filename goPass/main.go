@@ -20,9 +20,9 @@ func main() {
 	}
 	app := fiber.New()
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "http://localhost:5173",
-		AllowHeaders:     "Origin, Content-Type, Accept",
-		AllowCredentials: true,
+		AllowOrigins: "*",
+		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
+		AllowMethods: "GET,POST,PUT,DELETE,OPTIONS",
 	}))
 	app.Get("/robots.txt", func(c *fiber.Ctx) error {
 		return c.SendFile("./robots.txt")
@@ -32,7 +32,7 @@ func main() {
 	config.ConnectDB()
 	// Auto-create table
 	// config.DB.Migrator().DropTable(&models.Post{}, &models.User{})
-	// config.DB.AutoMigrate(&models.User{}, &models.Post{})
+	config.DB.AutoMigrate(&models.User{}, &models.Post{})
 
 	error := config.DB.AutoMigrate(
 		&models.AppUser{},
@@ -53,6 +53,5 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-
-	app.Listen(":" + port)
+	log.Fatal(app.Listen("0.0.0.0:" + port))
 }

@@ -48,7 +48,7 @@ func CreateAppAccessToken(id uuid.UUID) (string, error) {
 		Id:   id,
 		Type: "access",
 		Iat:  now,
-		Exp:  now + 15*60, // 15 min
+		Exp:  now + 1*30, // 15 min
 	}
 
 	return SignPayload(AccessSecret, payload)

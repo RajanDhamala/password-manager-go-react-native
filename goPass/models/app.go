@@ -12,7 +12,7 @@ type AppUser struct {
 	ID                 uuid.UUID `gorm:"type:uuid;primaryKey"`
 	Email              string    `gorm:"unique;not null;index"`
 	Password           string    `gorm:"not null"`
-	MasterPasswordHash string    `gorm:"default:''"`
+	MasterPasswordHash string    `gorm:""`
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
@@ -21,9 +21,9 @@ type AppUser struct {
 	FullName           string         `gorm:"not null"`
 	ProfilePicture     string
 	AesHashKeyMaster   datatypes.JSON `gorm:"type:jsonb;default:'{}'::jsonb"`
-	MasterSalt         string         `gorm:"default:''"`
+	MasterSalt         *string
 	AesHashKeyRecovery datatypes.JSON `gorm:"type:jsonb;default:'{}'::jsonb"`
-	RecoverySalt       string         `gorm:"default:''"`
+	RecoverySalt       *string
 }
 
 type Device struct {

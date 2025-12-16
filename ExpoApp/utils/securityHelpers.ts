@@ -9,25 +9,35 @@ import {
   generateSalt,
   generateRecoveryKey,
   deriveMasterPasswordHash,
-  EncryptedData
 } from "./crypto";
 
-export const generateAesSaltRecovery = () => {
-  const aesKey = generateRandomAESKey();
-  const userSalt = generateSalt();
-  const recoveryKey = generateRecoveryKey();
+import { EncryptedData } from "./crypto";
+
+export const generateAesSaltRecovery = async () => {
+  const aesKey = await generateRandomAESKey();
+  const userSalt = await generateSalt();
+  const recoveryKey = await generateRecoveryKey();
   return { aesKey, userSalt, recoveryKey };
 };
+
 
 export const generateGoatKey = (masterPassword: string, aesKey: string, userSalt: string) => {
   return deriveGoatKey(masterPassword, aesKey, userSalt);
 };
 
-export const encryptAesKeyMaster = (aesKey: string, masterPassword: string, userSalt: string): EncryptedData => {
+export const encryptAesKeyMaster = async (
+  aesKey: string,
+  masterPassword: string,
+  userSalt: string
+): Promise<EncryptedData> => {
   return encryptAESKeyWithMasterPassword(aesKey, masterPassword, userSalt);
 };
 
-export const encryptAesKeyRecovery = (aesKey: string, recoveryKey: string, recoverySalt: string): EncryptedData => {
+export const encryptAesKeyRecovery = async (
+  aesKey: string,
+  recoveryKey: string,
+  recoverySalt: string
+): Promise<EncryptedData> => {
   return encryptAESKeyWithRecoveryKey(aesKey, recoveryKey, recoverySalt);
 };
 

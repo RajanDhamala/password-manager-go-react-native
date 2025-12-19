@@ -1,6 +1,5 @@
-import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from "axios";
+import axios, { AxiosError, AxiosRequestConfig } from "axios";
 import * as SecureStore from "expo-secure-store";
-
 
 const api = axios.create({
   baseURL: "http://192.168.18.26:8080",
@@ -19,14 +18,14 @@ const processQueue = (error: any, token: string | null = null) => {
     if (error) prom.reject(error);
     else prom.resolve(token);
   });
-  failedQueue = [];
+  // failedQueue = [];
 };
 
 // REQUEST INTERCEPTOR
 api.interceptors.request.use(
   async (config: any) => {
     const token = await SecureStore.getItemAsync("accessToken");
-    console.log("Attaching token to request:");
+    console.log("Attaching token to request:",token);
     if (token) {
       config.headers = config.headers || {};
       config.headers.Authorization = `Bearer ${token}`;

@@ -24,7 +24,11 @@ function CustomDrawer(props: any) {
         <DrawerItem label="Settings" icon={({ color, size }) => <Icon name="cog" size={size} color={color} />} onPress={() => props.navigation.navigate("settings")} />
         <DrawerItem label="Add" icon={({ color, size }) => <Icon name="plus" size={size} color={color} />} onPress={() => props.navigation.navigate("add")} />
 
+        <DrawerItem label="Security" icon={({ color, size }) => <Icon name="plus" size={size} color={color} />} onPress={() => props.navigation.navigate("security")} />
+
         <DrawerItem label="Profile" icon={({ color, size }) => <Icon name="plus" size={size} color={color} />} onPress={() => props.navigation.navigate("profile")} />
+
+        <DrawerItem label="Db" icon={({ color, size }) => <Icon name="account" size={size} color={color} />} onPress={() => props.navigation.navigate("db")} />
       </View>
 
       {/* FOOTER */}
@@ -59,8 +63,9 @@ export default function DrawerLayout() {
         <Drawer.Screen name="auth" />
         <Drawer.Screen name="settings" />
         <Drawer.Screen name="add" />
-
+        <Drawer.Screen name="security" />
         <Drawer.Screen name="profile" />
+        <Drawer.Screen name="db" />
       </Drawer>
     </>
   );

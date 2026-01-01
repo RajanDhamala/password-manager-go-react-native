@@ -1,5 +1,6 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
 import { Stack } from "expo-router";
 import { PaperProvider } from "react-native-paper";
 import "../global.css";

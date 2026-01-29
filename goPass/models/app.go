@@ -31,6 +31,7 @@ type Device struct {
 	UserID          uuid.UUID `gorm:"type:uuid;not null;index"`
 	DeviceName      string
 	DevicePublicKey string `gorm:"not null"`
+	IPAddress       string
 	LastSyncAt      time.Time
 	CreatedAt       time.Time
 	User            AppUser `gorm:"foreignKey:UserID"`
@@ -44,6 +45,10 @@ type VaultEntry struct {
 	EncryptedPassword []byte         `gorm:"not null"`
 	IV                []byte         `gorm:"not null"`
 	MetaData          datatypes.JSON `gorm:"type:jsonb;default:'{}'::jsonb"`
+	PasswordSHA1      string         `gorm:"size:40"`
+	IsBreached        bool           `gorm:"default:false"`
+	BreachCount       int            `gorm:"default:0"`
+	LastBreachCheck   *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	Deleted           bool    `gorm:"default:false"`

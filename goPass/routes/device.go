@@ -1,9 +1,9 @@
 package router
 
 import (
-	"goPass/controller"
-
 	"github.com/gofiber/fiber/v2"
+	"goPass/controller"
+	"goPass/middlewares"
 )
 
 func DeviceRoute(app *fiber.App) {
@@ -13,7 +13,9 @@ func DeviceRoute(app *fiber.App) {
 		return c.SendString("device route is up and running")
 	})
 
-	DeviceRouter.Post("/register", controller.RegisterDevice)
-	DeviceRouter.Get("/list", controller.ListDevices)
-	DeviceRouter.Delete("/revoke/:id", controller.RevokeDevice)
+	DeviceRouter.Post("/register", middleware.AuthAppUser, controller.RegisterDevice)
+	DeviceRouter.Get("/list", middleware.AuthAppUser, controller.ListDevices)
+	DeviceRouter.Delete("/revoke/:deviceId", middleware.AuthAppUser, controller.RevokeDevice)
+	DeviceRouter.Get("/check/:deviceId", middleware.AuthAppUser, controller.ChekifDeviceRegistered)
+	DeviceRouter.Put("/sync/:deviceId", middleware.AuthAppUser, controller.UpdateDeviceSync)
 }

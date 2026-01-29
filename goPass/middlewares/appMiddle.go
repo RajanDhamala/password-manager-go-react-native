@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"log"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"goPass/utils"

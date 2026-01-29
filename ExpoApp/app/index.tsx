@@ -1,14 +1,7 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Redirect } from 'expo-router';
-
-const queryClient = new QueryClient();
+import { Redirect } from "expo-router";
 
 export default function Index() {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <Redirect href="/(tabs)/home" />
-    </QueryClientProvider>
-  );
+  return <Redirect href="/(tabs)/auth" />;
 }
 
 

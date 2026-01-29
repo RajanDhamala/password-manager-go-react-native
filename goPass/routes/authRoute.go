@@ -16,5 +16,8 @@ func AuthRoute(app *fiber.App) {
 	AuthRouter.Post("/register", controller.RegisterAppUser)
 	AuthRouter.Post("/login", controller.LoginAppUser)
 	AuthRouter.Get("/profile", middleware.AuthAppUser, controller.AppGetProfile)
+	AuthRouter.Put("/profile", middleware.AuthAppUser, controller.UpdateProfile)
+	AuthRouter.Put("/change-password", middleware.AuthAppUser, controller.ChangePassword)
+	AuthRouter.Post("/forgot-password", controller.ForgotPassword)
 	AuthRouter.Get("/refresh", controller.RefreshAppToken)
 }

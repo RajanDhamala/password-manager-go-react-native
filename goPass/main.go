@@ -31,7 +31,7 @@ func main() {
 	app.Use(logger.New())
 	config.ConnectDB()
 	// Auto-create table
-	// config.DB.Migrator().DropTable(&models.Post{}, &models.User{})
+	config.DB.Migrator().DropTable(&models.Post{}, &models.User{})
 	config.DB.AutoMigrate(&models.User{}, &models.Post{})
 
 	error := config.DB.AutoMigrate(

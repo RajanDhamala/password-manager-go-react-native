@@ -18,37 +18,36 @@ const processQueue = (error: any, token: string | null = null) => {
     if (error) prom.reject(error);
     else prom.resolve(token);
   });
-  // failedQueue = [];
+  failedQueue = [];
 };
 
-// REQUEST INTERCEPTOR
 api.interceptors.request.use(
   async (config: any) => {
     const token = await SecureStore.getItemAsync("accessToken");
-    console.log("Attaching token to request:",token);
+    console.log("Attaching token to request:", token);
     if (token) {
       config.headers = config.headers || {};
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => Promise.reject(error),
 );
 
-// RESPONSE INTERCEPTOR
 api.interceptors.response.use(
   (response: any) => {
     return response.data;
   },
   async (error: AxiosError) => {
-    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
+    const originalRequest = error.config as AxiosRequestConfig & {
+      _retry?: boolean;
+    };
 
     if (error.response?.status === 498 && !originalRequest._retry) {
       originalRequest._retry = true;
 
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
-
           failedQueue.push({
             resolve: (token: string) => {
               originalRequest.headers = originalRequest.headers || {};
@@ -70,7 +69,7 @@ api.interceptors.response.use(
           `http://192.168.18.26:8080/auth/refresh`,
           {
             headers: { Authorization: `Bearer ${refreshToken}` },
-          }
+          },
         );
 
         const newAccessToken = refreshResponse.data.newToken;
@@ -90,8 +89,7 @@ api.interceptors.response.use(
     }
 
     return Promise.reject(error);
-  }
+  },
 );
 
 export default api;
-

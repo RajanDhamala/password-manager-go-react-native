@@ -7,6 +7,7 @@ import (
 	"goPass/config"
 	"goPass/models"
 	"gorm.io/datatypes"
+	"log"
 )
 
 type RegisterVaultEntryRequest struct {
@@ -54,17 +55,23 @@ func RegisterVaultEntry(c *fiber.Ctx) error {
 	})
 }
 
+
 func CheckIfVaultRegistered(c *fiber.Ctx) error {
 	id := c.Locals("id").(uuid.UUID)
 	UserData := models.AppUser{}
 
 	if error := config.DB.Where("id=?", id).Where("master_salt IS NOT NULL").Select("id", "master_password_hash").First(&UserData).Error; error != nil {
+		log.Println("not found in db")
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "user not found in",
+	 "registered":false, 	
 		})
 	}
-
+	log.Println("found in db")
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Vault initilization found",
+	 "registered": true, 	
 	})
 }
+
+

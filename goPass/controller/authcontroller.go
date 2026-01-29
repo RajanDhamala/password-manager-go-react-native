@@ -10,17 +10,23 @@ import (
 	"goPass/models"
 	"goPass/utils"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/datatypes"
 )
 
 type RegisterRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	FullName string `json:"fullname"`
+	Email              string         `json:"email"`
+	Password           string         `json:"password"`
+	FullName           string         `json:"fullname"`
+	MasterPasswordHash string         `json:"masterPasswordHash"`
+	MasterSalt         string         `json:"masterSalt"`
+	RecoverySalt       string         `json:"recoverySalt"`
+	AesHashKeyMaster   datatypes.JSON `json:"aesHashKeyMaster"`
+	AesHashKeyRecovery datatypes.JSON `json:"aesHashKeyRecovery"`
 }
 
 func RegisterAppUser(c *fiber.Ctx) error {
 	data := RegisterRequest{}
-
+	log.Println("register invoked")
 	if err := c.BodyParser(&data); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid request body",
@@ -41,11 +47,17 @@ func RegisterAppUser(c *fiber.Ctx) error {
 		})
 	}
 	stringpass := string(p)
+
 	user := models.AppUser{
-		ID:       uuid.New(),
-		Email:    data.Email,
-		Password: stringpass,
-		FullName: data.FullName,
+		ID:                 uuid.New(),
+		Email:              data.Email,
+		Password:           stringpass,
+		FullName:           data.FullName,
+		MasterPasswordHash: data.MasterPasswordHash,
+		MasterSalt:         &data.MasterSalt,
+		RecoverySalt:       &data.RecoverySalt,
+		AesHashKeyMaster:   data.AesHashKeyMaster,
+		AesHashKeyRecovery: data.AesHashKeyRecovery,
 	}
 
 	error := config.DB.Create(&user).Error
@@ -68,6 +80,8 @@ type LoginAppRequest struct {
 
 func LoginAppUser(c *fiber.Ctx) error {
 	data := LoginAppRequest{}
+
+	log.Println("login invoked")
 	if err := c.BodyParser(&data); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "failed to parse the body",
@@ -115,8 +129,156 @@ func AppGetProfile(c *fiber.Ctx) error {
 	})
 }
 
+type ForgotPasswordRequest struct {
+	Email       string `json:"email"`
+	NewPassword string `json:"newPassword"`
+}
+
+// ForgotPassword - Resets password (user must use recovery code on client to restore AES key)
 func ForgotPassword(c *fiber.Ctx) error {
-	return c.SendString("hello")
+	data := ForgotPasswordRequest{}
+
+	if err := c.BodyParser(&data); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "failed to parse request body",
+		})
+	}
+
+	if data.Email == "" || data.NewPassword == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "email and newPassword are required",
+		})
+	}
+
+	if len(data.NewPassword) < 6 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "new password must be at least 6 characters",
+		})
+	}
+
+	user := models.AppUser{}
+	if err := config.DB.Where("email=?", data.Email).First(&user).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "user not found",
+		})
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(data.NewPassword), 10)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to hash new password",
+		})
+	}
+
+	user.Password = string(hashedPassword)
+	if err := config.DB.Save(&user).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to update password",
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "password reset successfully. Use your recovery code to restore vault access.",
+	})
+}
+
+type UpdateProfileRequest struct {
+	FullName string `json:"fullName"`
+}
+
+func UpdateProfile(c *fiber.Ctx) error {
+	id := c.Locals("id").(uuid.UUID)
+	data := UpdateProfileRequest{}
+
+	if err := c.BodyParser(&data); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "failed to parse request body",
+		})
+	}
+
+	if data.FullName == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "fullName is required",
+		})
+	}
+
+	user := models.AppUser{}
+	if err := config.DB.Where("id=?", id).First(&user).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "user not found",
+		})
+	}
+
+	user.FullName = data.FullName
+	if err := config.DB.Save(&user).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to update profile",
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "profile updated successfully",
+		"data":    user,
+	})
+}
+
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
+
+func ChangePassword(c *fiber.Ctx) error {
+	id := c.Locals("id").(uuid.UUID)
+	data := ChangePasswordRequest{}
+
+	if err := c.BodyParser(&data); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "failed to parse request body",
+		})
+	}
+
+	if data.CurrentPassword == "" || data.NewPassword == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "currentPassword and newPassword are required",
+		})
+	}
+
+	if len(data.NewPassword) < 6 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "new password must be at least 6 characters",
+		})
+	}
+
+	user := models.AppUser{}
+	if err := config.DB.Where("id=?", id).First(&user).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "user not found",
+		})
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(data.CurrentPassword)); err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "current password is incorrect",
+		})
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(data.NewPassword), 10)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to hash new password",
+		})
+	}
+
+	user.Password = string(hashedPassword)
+	if err := config.DB.Save(&user).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to update password",
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "password changed successfully",
+	})
 }
 
 func RefreshAppToken(c *fiber.Ctx) error {

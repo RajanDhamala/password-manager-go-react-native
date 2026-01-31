@@ -32,28 +32,31 @@
 
 ##  Tech Stack
 
-### Backend (goPass/)
+### Backend
 
 | | Technology | Purpose |
 |--|------------|---------|
 | <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/go/go-original.svg" width="20"/> | **Go 1.21+** | Backend language |
 | ⚡ | **Fiber v2** | Web framework |
 | <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/postgresql/postgresql-original.svg" width="20"/> | **PostgreSQL** | Database |
-|  | **GORM** | ORM |
-|  | **HMAC-SHA256** | Token signing |
-|  | **bcrypt** | Password hashing |
+| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/go/go-original.svg" width="20"/> | **GORM** | ORM |
+| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/openssl/openssl-original.svg" width="20"/> | **HMAC-SHA256** | Token signing |
+| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/go/go-original.svg" width="20"/> | **bcrypt** | Password hashing |
 
-### Mobile (ExpoApp/)
+---
+
+### Mobile (ExpoApp)
 
 | | Technology | Purpose |
 |--|------------|---------|
 | <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/react/react-original.svg" width="20"/> | **React Native** | Mobile framework |
 | <img src="https://www.vectorlogo.zone/logos/expoio/expoio-icon.svg" width="20"/> | **Expo** | Development & build |
 | <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/typescript/typescript-original.svg" width="20"/> | **TypeScript** | Type safety |
-|  | **NativeWind** | Styling (Tailwind) |
-|  | **CryptoJS** | AES-256 encryption |
-|  | **expo-secure-store** | Secure key storage |
-|  | **TanStack Query** | Data fetching |
+| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/tailwindcss/tailwindcss-plain.svg" width="20"/> | **NativeWind** | Styling (Tailwind) |
+| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/javascript/javascript-original.svg" width="20"/> | **CryptoJS** | AES-256 encryption |
+| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/react/react-original.svg" width="20"/> | **expo-secure-store** | Secure key storage |
+| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/react/react-original.svg" width="20"/> | **TanStack Query** | Data fetching |
+
 
 ---
 

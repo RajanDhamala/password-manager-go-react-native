@@ -3,9 +3,10 @@ package controller
 import (
 	"time"
 
-	"github.com/gofiber/fiber/v2"
 	"goPass/config"
 	"goPass/models"
+
+	"github.com/gofiber/fiber/v2"
 
 	"github.com/google/uuid"
 )
@@ -31,7 +32,6 @@ func RegisterDevice(c *fiber.Ctx) error {
 		})
 	}
 
-	// Get client IP
 	clientIP := c.IP()
 	if forwarded := c.Get("X-Forwarded-For"); forwarded != "" {
 		clientIP = forwarded
@@ -112,7 +112,6 @@ func UpdateDeviceSync(c *fiber.Ctx) error {
 		})
 	}
 
-	// Get client IP
 	clientIP := c.IP()
 	if forwarded := c.Get("X-Forwarded-For"); forwarded != "" {
 		clientIP = forwarded

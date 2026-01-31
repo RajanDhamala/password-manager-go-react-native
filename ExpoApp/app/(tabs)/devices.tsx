@@ -10,7 +10,7 @@ import {
   RefreshControl,
 } from "react-native";
 
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/utils/AxiosWrapper";
@@ -27,7 +27,11 @@ export default function DevicesScreen() {
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: devices, isLoading, refetch } = useQuery({
+  const {
+    data: devices,
+    isLoading,
+    refetch,
+  } = useQuery({
     queryKey: ["devices"],
     queryFn: async () => {
       const response: any = await api.get("/device/list");
@@ -38,7 +42,7 @@ export default function DevicesScreen() {
   useFocusEffect(
     useCallback(() => {
       refetch();
-    }, [])
+    }, []),
   );
 
   const onRefresh = () => {
@@ -65,7 +69,7 @@ export default function DevicesScreen() {
             }
           },
         },
-      ]
+      ],
     );
   };
 
@@ -96,14 +100,17 @@ export default function DevicesScreen() {
   };
 
   const renderDevice = ({ item, index }: { item: Device; index: number }) => {
-    const isCurrentDevice = index === 0; // Most recent sync is likely current device
+    const isCurrentDevice = index === 0;
 
     return (
-      <View className={`bg-white rounded-xl p-4 mb-3 shadow-sm ${isCurrentDevice ? "border-2 border-blue-500" : ""}`}>
+      <View
+        className={`bg-white rounded-xl p-4 mb-3 shadow-sm ${isCurrentDevice ? "border-2 border-blue-500" : ""}`}
+      >
         <View className="flex-row items-start">
           <View
-            className={`w-12 h-12 rounded-full items-center justify-center mr-4 ${isCurrentDevice ? "bg-blue-500" : "bg-gray-200"
-              }`}
+            className={`w-12 h-12 rounded-full items-center justify-center mr-4 ${
+              isCurrentDevice ? "bg-blue-500" : "bg-gray-200"
+            }`}
           >
             <Icon
               name="cellphone"
@@ -113,17 +120,23 @@ export default function DevicesScreen() {
           </View>
           <View className="flex-1">
             <View className="flex-row items-center">
-              <Text className="font-semibold text-lg text-gray-900">{item.DeviceName}</Text>
+              <Text className="font-semibold text-lg text-gray-900">
+                {item.DeviceName}
+              </Text>
               {isCurrentDevice && (
                 <View className="ml-2 bg-blue-100 px-2 py-0.5 rounded-full">
-                  <Text className="text-blue-700 text-xs font-medium">Current</Text>
+                  <Text className="text-blue-700 text-xs font-medium">
+                    Current
+                  </Text>
                 </View>
               )}
             </View>
 
             <View className="flex-row items-center mt-1">
               <Icon name="ip-network" size={14} color="#9CA3AF" />
-              <Text className="text-gray-500 text-sm ml-1">{item.IPAddress || "Unknown IP"}</Text>
+              <Text className="text-gray-500 text-sm ml-1">
+                {item.IPAddress || "Unknown IP"}
+              </Text>
             </View>
 
             <View className="flex-row items-center mt-1">
@@ -170,14 +183,14 @@ export default function DevicesScreen() {
         <Text className="text-gray-500">{devices?.length || 0} devices</Text>
       </View>
 
-      {/* Info Card */}
       <View className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
         <View className="flex-row items-center">
           <Icon name="information" size={24} color="#3B82F6" />
           <View className="ml-3 flex-1">
             <Text className="text-blue-800 font-medium">Device Management</Text>
             <Text className="text-blue-600 text-xs">
-              Track and manage all devices logged into your account. Revoke access for devices you no longer use.
+              Track and manage all devices logged into your account. Revoke
+              access for devices you no longer use.
             </Text>
           </View>
         </View>

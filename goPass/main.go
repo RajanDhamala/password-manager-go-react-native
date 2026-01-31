@@ -4,13 +4,14 @@ import (
 	"log"
 	"os"
 
+	"goPass/config"
+	"goPass/models"
+	router "goPass/routes"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/joho/godotenv"
-	"goPass/config"
-	"goPass/models"
-	"goPass/routes"
 )
 
 func main() {
@@ -31,13 +32,12 @@ func main() {
 	app.Use(logger.New())
 	config.ConnectDB()
 	// Auto-create table
-	config.DB.Migrator().DropTable(&models.Post{}, &models.User{})
-	config.DB.AutoMigrate(&models.User{}, &models.Post{})
 
 	error := config.DB.AutoMigrate(
 		&models.AppUser{},
 		&models.Device{},
-		&models.VaultEntry{})
+		&models.VaultEntry{},
+		&models.OTP{})
 	if error != nil {
 		log.Fatal("Migration failed:", err)
 	}
@@ -51,7 +51,7 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8000"
 	}
 	log.Fatal(app.Listen("0.0.0.0:" + port))
 }

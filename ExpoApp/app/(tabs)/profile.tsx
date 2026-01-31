@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons as Icon } from "@expo/vector-icons";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -12,6 +12,12 @@ import {
   FlatList,
   RefreshControl,
   Switch,
+  Animated,
+  Dimensions,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  Keyboard,
 } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import * as LocalAuthentication from "expo-local-authentication";
@@ -20,6 +26,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/utils/AxiosWrapper";
 
 import { SafeAreaView } from "react-native-safe-area-context";
+
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 interface UserProfile {
   ID: string;
@@ -47,6 +55,52 @@ function ChangePasswordModal({
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [modalVisible, setModalVisible] = useState(false);
+  const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const backdropAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setModalVisible(true);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      slideAnim.setValue(SCREEN_HEIGHT);
+      backdropAnim.setValue(0);
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 65,
+          friction: 11,
+        }),
+        Animated.timing(backdropAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible]);
+
+  const handleClose = () => {
+    Keyboard.dismiss();
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: SCREEN_HEIGHT,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setModalVisible(false);
+      onClose();
+    });
+  };
 
   const changePasswordMutation = useMutation({
     mutationFn: async (data: {
@@ -58,10 +112,7 @@ function ChangePasswordModal({
     },
     onSuccess: () => {
       Alert.alert("Success", "Password changed successfully");
-      onClose();
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
+      handleClose();
     },
     onError: (error: any) => {
       Alert.alert(
@@ -88,59 +139,169 @@ function ChangePasswordModal({
     changePasswordMutation.mutate({ currentPassword, newPassword });
   };
 
+  if (!modalVisible) return null;
+
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View className="flex-1 bg-black/50 justify-center items-center p-4">
-        <View className="bg-white rounded-2xl p-6 w-full max-w-md">
-          <View className="flex-row justify-between items-center mb-4">
-            <Text className="text-xl font-bold">Change Password</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Icon name="close" size={24} color="#6B7280" />
-            </TouchableOpacity>
-          </View>
+    <Modal visible={modalVisible} animationType="none" transparent statusBarTranslucent onRequestClose={handleClose}>
+      <View style={{ flex: 1 }}>
+        <Animated.View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            opacity: backdropAnim,
+          }}
+        >
+          <Pressable style={{ flex: 1 }} onPress={handleClose} />
+        </Animated.View>
 
-          <Text className="text-sm text-gray-700 mb-1">Current Password</Text>
-          <TextInput
-            value={currentPassword}
-            onChangeText={setCurrentPassword}
-            secureTextEntry
-            placeholder="••••••••"
-            className="bg-gray-100 border border-gray-200 rounded-lg px-4 py-3 mb-4"
-          />
-
-          <Text className="text-sm text-gray-700 mb-1">New Password</Text>
-          <TextInput
-            value={newPassword}
-            onChangeText={setNewPassword}
-            secureTextEntry
-            placeholder="••••••••"
-            className="bg-gray-100 border border-gray-200 rounded-lg px-4 py-3 mb-4"
-          />
-
-          <Text className="text-sm text-gray-700 mb-1">
-            Confirm New Password
-          </Text>
-          <TextInput
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry
-            placeholder="••••••••"
-            className="bg-gray-100 border border-gray-200 rounded-lg px-4 py-3 mb-4"
-          />
-
-          <TouchableOpacity
-            onPress={handleChange}
-            disabled={changePasswordMutation.isPending}
-            className={`py-4 rounded-lg items-center ${changePasswordMutation.isPending ? "bg-gray-400" : "bg-blue-500"}`}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+          keyboardVerticalOffset={0}
+        >
+          <Animated.View
+            style={{
+              transform: [{ translateY: slideAnim }],
+            }}
           >
-            {changePasswordMutation.isPending ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text className="text-white font-semibold">Change Password</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
+            <View
+              className="bg-white rounded-t-3xl overflow-hidden"
+              style={{ shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 20 }}
+            >
+              {/* Drag handle */}
+              <View className="items-center pt-3 pb-1">
+                <View className="w-10 h-1 bg-gray-300 rounded-full" />
+              </View>
+
+              {/* Header */}
+              <View className="bg-blue-500 px-6 pt-4 pb-6">
+                <View className="flex-row justify-between items-center">
+                <View className="flex-row items-center">
+                  <View
+                    className="w-12 h-12 rounded-2xl items-center justify-center"
+                    style={{ backgroundColor: "rgba(255,255,255,0.25)" }}
+                  >
+                    <Icon name="key-change" size={24} color="white" />
+                  </View>
+                  <View className="ml-3">
+                    <Text className="text-white/80 text-xs uppercase tracking-wider font-medium">
+                      Security
+                    </Text>
+                    <Text className="text-white text-xl font-bold">
+                      Change Password
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={handleClose}
+                  className="p-2 rounded-full"
+                  style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+                >
+                  <Icon name="close" size={22} color="white" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <ScrollView
+              className="px-5"
+              style={{ marginTop: -12 }}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View
+                className="bg-white rounded-2xl p-5 mb-4"
+                style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 4 }}
+              >
+                <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                  Current Password
+                </Text>
+                <View className="flex-row items-center bg-gray-50 rounded-xl border border-gray-100 mb-4">
+                  <View className="p-3">
+                    <Icon name="lock-outline" size={20} color="#6B7280" />
+                  </View>
+                  <TextInput
+                    value={currentPassword}
+                    onChangeText={setCurrentPassword}
+                    secureTextEntry
+                    placeholder="••••••••"
+                    placeholderTextColor="#9CA3AF"
+                    className="flex-1 py-3.5 pr-4 text-base"
+                  />
+                </View>
+
+                <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                  New Password
+                </Text>
+                <View className="flex-row items-center bg-gray-50 rounded-xl border border-gray-100 mb-4">
+                  <View className="p-3">
+                    <Icon name="lock-plus-outline" size={20} color="#6B7280" />
+                  </View>
+                  <TextInput
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    secureTextEntry
+                    placeholder="••••••••"
+                    placeholderTextColor="#9CA3AF"
+                    className="flex-1 py-3.5 pr-4 text-base"
+                  />
+                </View>
+
+                <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                  Confirm New Password
+                </Text>
+                <View className="flex-row items-center bg-gray-50 rounded-xl border border-gray-100">
+                  <View className="p-3">
+                    <Icon name="lock-check-outline" size={20} color="#6B7280" />
+                  </View>
+                  <TextInput
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    secureTextEntry
+                    placeholder="••••••••"
+                    placeholderTextColor="#9CA3AF"
+                    className="flex-1 py-3.5 pr-4 text-base"
+                  />
+                </View>
+              </View>
+
+              <View className="flex-row gap-3 mb-8 pb-4">
+                <TouchableOpacity
+                  onPress={handleClose}
+                  className="flex-1 bg-gray-100 py-4 rounded-2xl items-center flex-row justify-center"
+                  activeOpacity={0.7}
+                >
+                  <Icon name="close" size={20} color="#6B7280" />
+                  <Text className="text-gray-700 font-bold ml-2">Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleChange}
+                  disabled={changePasswordMutation.isPending}
+                  className={`flex-1 py-4 rounded-2xl items-center flex-row justify-center ${
+                    changePasswordMutation.isPending ? "bg-gray-400" : "bg-blue-500"
+                  }`}
+                  activeOpacity={0.7}
+                  style={{ shadowColor: '#3B82F6', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 }}
+                >
+                  {changePasswordMutation.isPending ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <>
+                      <Icon name="check" size={20} color="white" />
+                      <Text className="text-white font-bold ml-2">Update</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </Animated.View>
+      </KeyboardAvoidingView>
+    </View>
     </Modal>
   );
 }
@@ -157,10 +318,53 @@ function EditProfileModal({
   onUpdate: (data: Partial<UserProfile>) => void;
 }) {
   const [fullName, setFullName] = useState(profile?.FullName || "");
+  const [modalVisible, setModalVisible] = useState(false);
+  const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const backdropAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (profile) setFullName(profile.FullName);
   }, [profile]);
+
+  useEffect(() => {
+    if (visible) {
+      setModalVisible(true);
+      slideAnim.setValue(SCREEN_HEIGHT);
+      backdropAnim.setValue(0);
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 65,
+          friction: 11,
+        }),
+        Animated.timing(backdropAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible]);
+
+  const handleClose = () => {
+    Keyboard.dismiss();
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: SCREEN_HEIGHT,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setModalVisible(false);
+      onClose();
+    });
+  };
 
   const updateProfileMutation = useMutation({
     mutationFn: async (data: { fullName: string }) => {
@@ -170,7 +374,7 @@ function EditProfileModal({
     onSuccess: () => {
       onUpdate({ FullName: fullName });
       Alert.alert("Success", "Profile updated");
-      onClose();
+      handleClose();
     },
     onError: (error: any) => {
       Alert.alert(
@@ -189,45 +393,152 @@ function EditProfileModal({
     updateProfileMutation.mutate({ fullName });
   };
 
+  if (!modalVisible) return null;
+
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View className="flex-1 bg-black/50 justify-center items-center p-4">
-        <View className="bg-white rounded-2xl p-6 w-full max-w-md">
-          <View className="flex-row justify-between items-center mb-4">
-            <Text className="text-xl font-bold">Edit Profile</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Icon name="close" size={24} color="#6B7280" />
-            </TouchableOpacity>
-          </View>
+    <Modal visible={modalVisible} animationType="none" transparent statusBarTranslucent onRequestClose={handleClose}>
+      <View style={{ flex: 1 }}>
+        <Animated.View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            opacity: backdropAnim,
+          }}
+        >
+          <Pressable style={{ flex: 1 }} onPress={handleClose} />
+        </Animated.View>
 
-          <Text className="text-sm text-gray-700 mb-1">Full Name</Text>
-          <TextInput
-            value={fullName}
-            onChangeText={setFullName}
-            placeholder="John Doe"
-            className="bg-gray-100 border border-gray-200 rounded-lg px-4 py-3 mb-4"
-          />
-
-          <Text className="text-sm text-gray-700 mb-1">Email</Text>
-          <TextInput
-            value={profile?.Email}
-            editable={false}
-            className="bg-gray-200 border border-gray-200 rounded-lg px-4 py-3 mb-4 text-gray-500"
-          />
-
-          <TouchableOpacity
-            onPress={handleSave}
-            disabled={updateProfileMutation.isPending}
-            className={`py-4 rounded-lg items-center ${updateProfileMutation.isPending ? "bg-gray-400" : "bg-blue-500"}`}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+          keyboardVerticalOffset={0}
+        >
+          <Animated.View
+            style={{
+              transform: [{ translateY: slideAnim }],
+            }}
           >
-            {updateProfileMutation.isPending ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text className="text-white font-semibold">Save Changes</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
+            <View
+            className="bg-white rounded-t-3xl overflow-hidden"
+            style={{ shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 20 }}
+          >
+            {/* Drag handle */}
+            <View className="items-center pt-3 pb-1">
+              <View className="w-10 h-1 bg-gray-300 rounded-full" />
+            </View>
+
+            {/* Header */}
+            <View className="bg-blue-500 px-6 pt-4 pb-6">
+              <View className="flex-row justify-between items-center">
+                <View className="flex-row items-center">
+                  <View
+                    className="w-12 h-12 rounded-2xl items-center justify-center"
+                    style={{ backgroundColor: "rgba(255,255,255,0.25)" }}
+                  >
+                    <Icon name="account-edit" size={24} color="white" />
+                  </View>
+                  <View className="ml-3">
+                    <Text className="text-white/80 text-xs uppercase tracking-wider font-medium">
+                      Account
+                    </Text>
+                    <Text className="text-white text-xl font-bold">
+                      Edit Profile
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={handleClose}
+                  className="p-2 rounded-full"
+                  style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+                >
+                  <Icon name="close" size={22} color="white" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <ScrollView
+              className="px-5"
+              style={{ marginTop: -12 }}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View
+                className="bg-white rounded-2xl p-5 mb-4"
+                style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 4 }}
+              >
+                <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                  Full Name
+                </Text>
+                <View className="flex-row items-center bg-gray-50 rounded-xl border border-gray-100 mb-4">
+                  <View className="p-3">
+                    <Icon name="account-outline" size={20} color="#6B7280" />
+                  </View>
+                  <TextInput
+                    value={fullName}
+                    onChangeText={setFullName}
+                    placeholder="John Doe"
+                    placeholderTextColor="#9CA3AF"
+                    className="flex-1 py-3.5 pr-4 text-base"
+                  />
+                </View>
+
+                <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                  Email
+                </Text>
+                <View className="flex-row items-center bg-gray-100 rounded-xl border border-gray-200">
+                  <View className="p-3">
+                    <Icon name="email-outline" size={20} color="#9CA3AF" />
+                  </View>
+                  <Text className="flex-1 py-3.5 pr-4 text-base text-gray-400">
+                    {profile?.Email}
+                  </Text>
+                  <View className="pr-3">
+                    <Icon name="lock" size={16} color="#9CA3AF" />
+                  </View>
+                </View>
+                <Text className="text-xs text-gray-400 mt-1 ml-1">
+                  Email cannot be changed
+                </Text>
+              </View>
+
+              <View className="flex-row gap-3 mb-8 pb-4">
+                <TouchableOpacity
+                  onPress={handleClose}
+                  className="flex-1 bg-gray-100 py-4 rounded-2xl items-center flex-row justify-center"
+                  activeOpacity={0.7}
+                >
+                  <Icon name="close" size={20} color="#6B7280" />
+                  <Text className="text-gray-700 font-bold ml-2">Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleSave}
+                  disabled={updateProfileMutation.isPending}
+                  className={`flex-1 py-4 rounded-2xl items-center flex-row justify-center ${
+                    updateProfileMutation.isPending ? "bg-gray-400" : "bg-blue-500"
+                  }`}
+                  activeOpacity={0.7}
+                  style={{ shadowColor: '#3B82F6', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 }}
+                >
+                  {updateProfileMutation.isPending ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <>
+                      <Icon name="check" size={20} color="white" />
+                      <Text className="text-white font-bold ml-2">Save</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </Animated.View>
+      </KeyboardAvoidingView>
+    </View>
     </Modal>
   );
 }
@@ -241,6 +552,48 @@ function DevicesModal({
 }) {
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const backdropAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setModalVisible(true);
+      slideAnim.setValue(SCREEN_HEIGHT);
+      backdropAnim.setValue(0);
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 65,
+          friction: 11,
+        }),
+        Animated.timing(backdropAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible]);
+
+  const handleClose = () => {
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: SCREEN_HEIGHT,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setModalVisible(false);
+      onClose();
+    });
+  };
 
   const {
     data: devices,
@@ -252,7 +605,7 @@ function DevicesModal({
       const response: any = await api.get("/device/list");
       return response.data || [];
     },
-    enabled: visible,
+    enabled: modalVisible,
   });
 
   const revokeDeviceMutation = useMutation({
@@ -321,10 +674,11 @@ function DevicesModal({
     return (
       <View
         className={`bg-gray-50 rounded-xl p-4 mb-3 ${isCurrentDevice ? "border-2 border-blue-500" : "border border-gray-200"}`}
+        style={isCurrentDevice ? { shadowColor: '#3B82F6', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 } : {}}
       >
         <View className="flex-row items-start">
           <View
-            className={`w-10 h-10 rounded-full items-center justify-center mr-3 ${
+            className={`w-11 h-11 rounded-xl items-center justify-center mr-3 ${
               isCurrentDevice ? "bg-blue-500" : "bg-gray-200"
             }`}
           >
@@ -336,29 +690,29 @@ function DevicesModal({
           </View>
           <View className="flex-1">
             <View className="flex-row items-center">
-              <Text className="font-semibold text-gray-900">
+              <Text className="font-bold text-gray-900">
                 {item.DeviceName}
               </Text>
               {isCurrentDevice && (
                 <View className="ml-2 bg-blue-100 px-2 py-0.5 rounded-full">
-                  <Text className="text-blue-700 text-xs font-medium">
-                    Current
+                  <Text className="text-blue-700 text-xs font-bold">
+                    This Device
                   </Text>
                 </View>
               )}
             </View>
 
-            <View className="flex-row items-center mt-1">
+            <View className="flex-row items-center mt-1.5">
               <Icon name="ip-network" size={12} color="#9CA3AF" />
-              <Text className="text-gray-500 text-xs ml-1">
+              <Text className="text-gray-500 text-xs ml-1.5">
                 {item.IPAddress || "Unknown IP"}
               </Text>
             </View>
 
             <View className="flex-row items-center mt-1">
-              <Icon name="login" size={12} color="#9CA3AF" />
-              <Text className="text-gray-500 text-xs ml-1">
-                Last logged in: {getTimeSince(item.LastSyncAt)}
+              <Icon name="clock-outline" size={12} color="#9CA3AF" />
+              <Text className="text-gray-500 text-xs ml-1.5">
+                Last active: {getTimeSince(item.LastSyncAt)}
               </Text>
             </View>
           </View>
@@ -367,9 +721,9 @@ function DevicesModal({
             <TouchableOpacity
               onPress={() => handleRevokeDevice(item)}
               disabled={revokeDeviceMutation.isPending}
-              className="p-2"
+              className="p-2 bg-red-50 rounded-lg"
             >
-              <Icon name="close-circle-outline" size={22} color="#EF4444" />
+              <Icon name="close-circle-outline" size={20} color="#EF4444" />
             </TouchableOpacity>
           )}
         </View>
@@ -377,34 +731,94 @@ function DevicesModal({
     );
   };
 
+  if (!modalVisible) return null;
+
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View className="flex-1 bg-black/50 justify-end">
-        <View className="bg-white rounded-t-3xl p-6 max-h-[80%]">
-          <View className="flex-row justify-between items-center mb-4">
-            <Text className="text-xl font-bold">Your Devices</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Icon name="close" size={24} color="#6B7280" />
-            </TouchableOpacity>
+    <Modal visible={modalVisible} animationType="none" transparent statusBarTranslucent onRequestClose={handleClose}>
+      <Animated.View
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          opacity: backdropAnim,
+        }}
+      >
+        <Pressable style={{ flex: 1 }} onPress={handleClose} />
+      </Animated.View>
+
+      <Animated.View
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          maxHeight: SCREEN_HEIGHT * 0.85,
+          transform: [{ translateY: slideAnim }],
+        }}
+      >
+        <View
+          className="bg-white rounded-t-3xl overflow-hidden"
+          style={{ shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 20 }}
+        >
+          {/* Drag handle */}
+          <View className="items-center pt-3 pb-1">
+            <View className="w-10 h-1 bg-gray-300 rounded-full" />
           </View>
 
-          <View className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4">
-            <View className="flex-row items-center">
-              <Icon name="information" size={20} color="#3B82F6" />
-              <Text className="text-blue-600 text-xs ml-2 flex-1">
-                Track and manage all devices logged into your account.
+          {/* Header */}
+          <View className="bg-blue-500 px-6 pt-4 pb-6">
+            <View className="flex-row justify-between items-center">
+              <View className="flex-row items-center">
+                <View
+                  className="w-12 h-12 rounded-2xl items-center justify-center"
+                  style={{ backgroundColor: "rgba(255,255,255,0.25)" }}
+                >
+                  <Icon name="cellphone-link" size={24} color="white" />
+                </View>
+                <View className="ml-3">
+                  <Text className="text-white/80 text-xs uppercase tracking-wider font-medium">
+                    Security
+                  </Text>
+                  <Text className="text-white text-xl font-bold">
+                    Your Devices
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={handleClose}
+                className="p-2 rounded-full"
+                style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+              >
+                <Icon name="close" size={22} color="white" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View className="px-5" style={{ marginTop: -12 }}>
+            <View
+              className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-4 flex-row items-center"
+              style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 }}
+            >
+              <View className="bg-blue-100 p-2 rounded-full">
+                <Icon name="information" size={18} color="#3B82F6" />
+              </View>
+              <Text className="text-blue-700 text-xs ml-3 flex-1 leading-4">
+                Track and manage all devices logged into your account. Revoke access for any suspicious devices.
               </Text>
             </View>
           </View>
 
           {isLoading ? (
-            <View className="items-center py-8">
+            <View className="items-center py-12">
               <ActivityIndicator size="large" color="#3B82F6" />
+              <Text className="text-gray-400 mt-3">Loading devices...</Text>
             </View>
           ) : !devices || devices.length === 0 ? (
-            <View className="items-center py-8">
-              <Icon name="cellphone-off" size={48} color="#CBD5E1" />
-              <Text className="text-gray-400 mt-2">No devices found</Text>
+            <View className="items-center py-12">
+              <View className="bg-gray-100 p-4 rounded-full mb-3">
+                <Icon name="cellphone-off" size={40} color="#CBD5E1" />
+              </View>
+              <Text className="text-gray-400 text-base">No devices found</Text>
+              <Text className="text-gray-300 text-sm mt-1">Your devices will appear here</Text>
             </View>
           ) : (
             <FlatList
@@ -412,13 +826,14 @@ function DevicesModal({
               keyExtractor={(item) => item.ID}
               renderItem={renderDevice}
               showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }}
               refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3B82F6"]} />
               }
             />
           )}
         </View>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }
@@ -594,7 +1009,7 @@ export default function ProfileScreen() {
           <Text className="text-gray-600 mt-1 text-xs">Zero-Knowledge</Text>
         </View>
         <View className="items-center">
-          <Icon name="key-variant" size={28} color="#8B5CF6" />
+          <Icon name="key-variant" size={28} color="#3B82F6" />
           <Text className="text-gray-600 mt-1 text-xs">Recovery Ready</Text>
         </View>
       </View>
@@ -612,7 +1027,7 @@ export default function ProfileScreen() {
         <MenuItem
           icon="key-change"
           label="Change Password"
-          color="#8B5CF6"
+          color="#3B82F6"
           onPress={() => setShowChangePassword(true)}
         />
       </View>
@@ -643,13 +1058,13 @@ export default function ProfileScreen() {
         <MenuItem
           icon="cellphone-link"
           label="Manage Devices"
-          color="#F59E0B"
+          color="#3B82F6"
           onPress={() => setShowDevices(true)}
         />
         <MenuItem
           icon="key-variant"
           label="View Recovery Info"
-          color="#F59E0B"
+          color="#3B82F6"
           onPress={() => {
             Alert.alert(
               "Recovery Code",
@@ -661,7 +1076,7 @@ export default function ProfileScreen() {
         <MenuItem
           icon="delete-sweep"
           label="Clear Local Encryption Key"
-          color="#F59E0B"
+          color="#3B82F6"
           onPress={handleClearLocalKey}
         />
       </View>

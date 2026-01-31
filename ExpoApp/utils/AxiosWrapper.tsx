@@ -1,11 +1,44 @@
 import axios, { AxiosError, AxiosRequestConfig } from "axios";
 import * as SecureStore from "expo-secure-store";
 
+const DEFAULT_ENDPOINT = "192.168.18.26:8000";
+const CONFIG_URL = "https://reverse-http.onrender.com/appConfig";
+
+let currentEndpoint = DEFAULT_ENDPOINT;
+
 const api = axios.create({
-  baseURL: "http://192.168.18.26:8080",
+  baseURL: `http://${DEFAULT_ENDPOINT}`,
   timeout: 10000,
   headers: { "Content-Type": "application/json" },
 });
+
+export const initializeApiConfig = async (maxRetries = 3, retryDelay = 60000): Promise<boolean> => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`Fetching app config (attempt ${attempt}/${maxRetries})...`);
+      const response = await axios.get<{ appName: string; endpoint: string }>(CONFIG_URL, {
+        timeout: 30000,
+      });
+      
+      if (response.data?.endpoint) {
+        currentEndpoint = response.data.endpoint;
+        api.defaults.baseURL = `http://${currentEndpoint}`;
+        console.log(`API endpoint set to: http://${currentEndpoint}`);
+        return true;
+      }
+    } catch (error) {
+      console.log(`Config fetch failed (attempt ${attempt}): ${error}`);
+      if (attempt < maxRetries) {
+        console.log(`Retrying in ${retryDelay / 1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
+    }
+  }
+  console.log(`Using default endpoint: http://${DEFAULT_ENDPOINT}`);
+  return false;
+};
+
+export const getApiEndpoint = () => currentEndpoint;
 
 let isRefreshing = false;
 let failedQueue: {
@@ -66,7 +99,7 @@ api.interceptors.response.use(
         if (!refreshToken) throw new Error("No refresh token found");
 
         const refreshResponse = await axios.get<{ newToken: string }>(
-          `http://192.168.18.26:8080/auth/refresh`,
+          `http://${currentEndpoint}/auth/refresh`,
           {
             headers: { Authorization: `Bearer ${refreshToken}` },
           },

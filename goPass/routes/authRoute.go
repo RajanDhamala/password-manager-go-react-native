@@ -1,9 +1,10 @@
 package router
 
 import (
-	"github.com/gofiber/fiber/v2"
 	"goPass/controller"
-	"goPass/middlewares"
+	middleware "goPass/middlewares"
+
+	"github.com/gofiber/fiber/v2"
 )
 
 func AuthRoute(app *fiber.App) {
@@ -13,8 +14,12 @@ func AuthRoute(app *fiber.App) {
 		return c.SendString("auth route is up and running")
 	})
 
+	AuthRouter.Post("/send-register-otp", controller.SendRegisterOTP)
 	AuthRouter.Post("/register", controller.RegisterAppUser)
+
+	AuthRouter.Post("/send-login-otp", controller.SendLoginOTP)
 	AuthRouter.Post("/login", controller.LoginAppUser)
+
 	AuthRouter.Get("/profile", middleware.AuthAppUser, controller.AppGetProfile)
 	AuthRouter.Put("/profile", middleware.AuthAppUser, controller.UpdateProfile)
 	AuthRouter.Put("/change-password", middleware.AuthAppUser, controller.ChangePassword)

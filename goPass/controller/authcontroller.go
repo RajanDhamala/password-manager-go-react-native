@@ -2,15 +2,28 @@ package controller
 
 import (
 	"log"
+	"sync"
+	"time"
+
+	"goPass/config"
+	"goPass/models"
+	"goPass/utils"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
-	"goPass/config"
-	"goPass/models"
-	"goPass/utils"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/datatypes"
+)
+
+type PendingRegistration struct {
+	Data      RegisterRequest
+	ExpiresAt time.Time
+}
+
+var (
+	pendingRegistrations = make(map[string]PendingRegistration)
+	pendingRegMutex      sync.RWMutex
 )
 
 type RegisterRequest struct {
@@ -24,8 +37,68 @@ type RegisterRequest struct {
 	AesHashKeyRecovery datatypes.JSON `json:"aesHashKeyRecovery"`
 }
 
+func SendRegisterOTP(c *fiber.Ctx) error {
+	type SendOTPRequest struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		FullName string `json:"fullname"`
+	}
+
+	data := SendOTPRequest{}
+	if err := c.BodyParser(&data); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	if data.Email == "" || data.Password == "" || data.FullName == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Email, password and fullname are required",
+		})
+	}
+
+	if len(data.Password) < 6 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Password must be at least 6 characters",
+		})
+	}
+
+	var existingUser models.AppUser
+	if err := config.DB.Where("email = ?", data.Email).First(&existingUser).Error; err == nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "User with this email already exists",
+		})
+	}
+
+	otp := utils.GenerateOTP()
+	utils.StoreOTP(data.Email, otp, "register")
+
+	if err := utils.SendOTPEmail(data.Email, otp, "register"); err != nil {
+		log.Printf("Failed to send OTP email: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to send verification email",
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "OTP sent to your email",
+	})
+}
+
 func RegisterAppUser(c *fiber.Ctx) error {
-	data := RegisterRequest{}
+	type VerifyRegisterRequest struct {
+		Email              string         `json:"email"`
+		Password           string         `json:"password"`
+		FullName           string         `json:"fullname"`
+		OTP                string         `json:"otp"`
+		MasterPasswordHash string         `json:"masterPasswordHash"`
+		MasterSalt         string         `json:"masterSalt"`
+		RecoverySalt       string         `json:"recoverySalt"`
+		AesHashKeyMaster   datatypes.JSON `json:"aesHashKeyMaster"`
+		AesHashKeyRecovery datatypes.JSON `json:"aesHashKeyRecovery"`
+	}
+
+	data := VerifyRegisterRequest{}
 	log.Println("register invoked")
 	if err := c.BodyParser(&data); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -37,6 +110,19 @@ func RegisterAppUser(c *fiber.Ctx) error {
 	if data.Email == "" || data.Password == "" || len(data.Password) < 6 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "invalid form data",
+		})
+	}
+
+	if data.OTP == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "OTP is required",
+		})
+	}
+
+	// Verify OTP
+	if !utils.VerifyOTP(data.Email, data.OTP, "register") {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid or expired OTP",
 		})
 	}
 
@@ -68,8 +154,14 @@ func RegisterAppUser(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "Database error"})
 	}
 
+	accessToken, _ := utils.CreateAppAccessToken(user.ID)
+	refreshToken, _ := utils.CreateAppRefreshToken(user.ID)
+
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"message": "user created succesfully",
+		"message":      "user created succesfully",
+		"accessToken":  accessToken,
+		"refreshToken": refreshToken,
+		"firstLogin":   true,
 	})
 }
 
@@ -78,8 +170,58 @@ type LoginAppRequest struct {
 	Password string `json:"password"`
 }
 
-func LoginAppUser(c *fiber.Ctx) error {
+func SendLoginOTP(c *fiber.Ctx) error {
 	data := LoginAppRequest{}
+
+	log.Println("send login OTP invoked")
+	if err := c.BodyParser(&data); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "failed to parse the body",
+		})
+	}
+
+	if data.Email == "" || data.Password == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid form data",
+		})
+	}
+
+	user := models.AppUser{}
+	if error := config.DB.Where("email=?", data.Email).Select("email", "id", "password").First(&user).Error; error != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "email not found",
+		})
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(data.Password)); err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "invalid credentials",
+		})
+	}
+
+	otp := utils.GenerateOTP()
+	utils.StoreOTP(data.Email, otp, "login")
+
+	if err := utils.SendOTPEmail(data.Email, otp, "login"); err != nil {
+		log.Printf("Failed to send OTP email: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to send verification email",
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "OTP sent to your email",
+	})
+}
+
+func LoginAppUser(c *fiber.Ctx) error {
+	type VerifyLoginRequest struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		OTP      string `json:"otp"`
+	}
+
+	data := VerifyLoginRequest{}
 
 	log.Println("login invoked")
 	if err := c.BodyParser(&data); err != nil {
@@ -93,6 +235,20 @@ func LoginAppUser(c *fiber.Ctx) error {
 			"error": "invalid form data",
 		})
 	}
+
+	if data.OTP == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "OTP is required",
+		})
+	}
+
+	// Verify OTP first
+	if !utils.VerifyOTP(data.Email, data.OTP, "login") {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid or expired OTP",
+		})
+	}
+
 	user := models.AppUser{}
 	if error := config.DB.Where("email=?", data.Email).Select("email", "id", "password").First(&user).Error; error != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -134,7 +290,6 @@ type ForgotPasswordRequest struct {
 	NewPassword string `json:"newPassword"`
 }
 
-// ForgotPassword - Resets password (user must use recovery code on client to restore AES key)
 func ForgotPassword(c *fiber.Ctx) error {
 	data := ForgotPasswordRequest{}
 

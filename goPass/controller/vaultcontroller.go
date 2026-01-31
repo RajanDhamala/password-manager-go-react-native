@@ -10,10 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
 	"goPass/config"
 	"goPass/models"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"gorm.io/datatypes"
 )
 
@@ -93,7 +94,6 @@ func GetYourVault(c *fiber.Ctx) error {
 		})
 	}
 
-	// Pagination params
 	page, _ := strconv.Atoi(c.Query("page", "1"))
 	limit, _ := strconv.Atoi(c.Query("limit", "20"))
 	if page < 1 {
@@ -104,7 +104,6 @@ func GetYourVault(c *fiber.Ctx) error {
 	}
 	offset := (page - 1) * limit
 
-	// Get total count
 	var totalCount int64
 	config.DB.Model(&models.VaultEntry{}).Where("user_id = ? AND deleted = ?", id, false).Count(&totalCount)
 
@@ -254,14 +253,12 @@ func checkPasswordBreach(sha1Hash string) (bool, int) {
 	return false, 0
 }
 
-// ComputeSHA1 computes SHA1 hash of a string (utility for frontend reference)
 func ComputeSHA1(input string) string {
 	h := sha1.New()
 	h.Write([]byte(input))
 	return strings.ToUpper(hex.EncodeToString(h.Sum(nil)))
 }
 
-// GetVaultStats returns password count and breach statistics
 func GetVaultStats(c *fiber.Ctx) error {
 	userId := c.Locals("id").(uuid.UUID)
 	if userId == uuid.Nil {
@@ -296,7 +293,6 @@ func GetVaultStats(c *fiber.Ctx) error {
 	})
 }
 
-// CheckAllBreaches checks all vault entries for breaches (for periodic check)
 func CheckAllBreaches(c *fiber.Ctx) error {
 	userId := c.Locals("id").(uuid.UUID)
 	if userId == uuid.Nil {

@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import * as SecureStore from "expo-secure-store";
 import * as Device from "expo-device";
 import { useNavigation } from "@react-navigation/native";
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -14,10 +14,13 @@ import {
   TouchableOpacity,
   View,
   Modal,
-  Alert,
+  Animated,
+  Dimensions,
+  Pressable,
+  Keyboard,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import { Toast } from "toastify-react-native";
+import { useToast } from "../../components/Toast";
 import {
   generateRandomAESKey,
   generateSalt,
@@ -29,88 +32,563 @@ import {
 } from "../../utils/crypto";
 
 const API_URL = "http://192.168.18.26:8080";
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-// Recovery Code Display Modal
+function CustomAlert({
+  visible,
+  title,
+  message,
+  buttons,
+  onClose,
+}: {
+  visible: boolean;
+  title: string;
+  message: string;
+  buttons?: Array<{
+    text: string;
+    onPress?: () => void;
+    style?: "cancel" | "default" | "destructive";
+  }>;
+  onClose: () => void;
+}) {
+  if (!visible) return null;
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="fade"
+      transparent
+      onRequestClose={onClose}
+    >
+      <TouchableOpacity
+        activeOpacity={1}
+        onPress={onClose}
+        className="flex-1 bg-black/50 justify-center items-center p-4"
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          className="bg-white rounded-2xl p-6 w-full max-w-sm"
+        >
+          <Text className="text-xl font-bold text-center mb-2">{title}</Text>
+          <Text className="text-gray-600 text-center mb-6">{message}</Text>
+          <View className="flex-row justify-center gap-3">
+            {buttons?.map((btn, index) => (
+              <TouchableOpacity
+                key={index}
+                onPress={() => {
+                  onClose();
+                  btn.onPress?.();
+                }}
+                className={`flex-1 py-3 rounded-lg items-center ${
+                  btn.style === "cancel" ? "bg-gray-200" : "bg-blue-500"
+                }`}
+              >
+                <Text
+                  className={
+                    btn.style === "cancel"
+                      ? "text-gray-700 font-semibold"
+                      : "text-white font-semibold"
+                  }
+                >
+                  {btn.text}
+                </Text>
+              </TouchableOpacity>
+            )) || (
+              <TouchableOpacity
+                onPress={onClose}
+                className="flex-1 py-3 rounded-lg items-center bg-blue-500"
+              >
+                <Text className="text-white font-semibold">OK</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
+function OTPModal({
+  visible,
+  email,
+  onVerify,
+  onResend,
+  onClose,
+  loading,
+  purpose,
+}: {
+  visible: boolean;
+  email: string;
+  onVerify: (otp: string) => void;
+  onResend: () => void;
+  onClose: () => void;
+  loading: boolean;
+  purpose: "login" | "register";
+}) {
+  const [otp, setOtp] = useState("");
+  const [resendTimer, setResendTimer] = useState(60);
+  const [canResend, setCanResend] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const backdropAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setModalVisible(true);
+      setOtp("");
+      setResendTimer(60);
+      setCanResend(false);
+      slideAnim.setValue(SCREEN_HEIGHT);
+      backdropAnim.setValue(0);
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 65,
+          friction: 11,
+        }),
+        Animated.timing(backdropAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible]);
+
+  const handleClose = () => {
+    Keyboard.dismiss();
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: SCREEN_HEIGHT,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setModalVisible(false);
+      onClose();
+    });
+  };
+
+  useEffect(() => {
+    if (modalVisible && resendTimer > 0) {
+      const timer = setTimeout(() => setResendTimer(resendTimer - 1), 1000);
+      return () => clearTimeout(timer);
+    } else if (resendTimer === 0) {
+      setCanResend(true);
+    }
+  }, [modalVisible, resendTimer]);
+
+  const handleResend = () => {
+    setResendTimer(60);
+    setCanResend(false);
+    onResend();
+  };
+
+  if (!modalVisible) return null;
+
+  return (
+    <Modal
+      visible={modalVisible}
+      animationType="none"
+      transparent
+      statusBarTranslucent
+      onRequestClose={handleClose}
+    >
+      <View style={{ flex: 1 }}>
+        <Animated.View
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0,0,0,0.5)",
+            opacity: backdropAnim,
+          }}
+        >
+          <Pressable
+            style={{ flex: 1 }}
+            onPress={loading ? undefined : handleClose}
+          />
+        </Animated.View>
+
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={{ flex: 1, justifyContent: "flex-end" }}
+          keyboardVerticalOffset={0}
+        >
+          <Animated.View
+            style={{
+              transform: [{ translateY: slideAnim }],
+            }}
+          >
+            <View
+              className="bg-white rounded-t-3xl overflow-hidden"
+              style={{
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: -4 },
+                shadowOpacity: 0.15,
+                shadowRadius: 12,
+                elevation: 20,
+              }}
+            >
+              <View className="items-center pt-3 pb-1">
+                <View className="w-10 h-1 bg-gray-300 rounded-full" />
+              </View>
+
+              <View className="bg-blue-500 px-6 pt-4 pb-6">
+                <View className="flex-row justify-between items-center">
+                  <View className="flex-row items-center">
+                    <View
+                      className="w-12 h-12 rounded-2xl items-center justify-center"
+                      style={{ backgroundColor: "rgba(255,255,255,0.25)" }}
+                    >
+                      <Icon name="email-check" size={24} color="white" />
+                    </View>
+                    <View className="ml-3">
+                      <Text className="text-white/80 text-xs uppercase tracking-wider font-medium">
+                        Verification
+                      </Text>
+                      <Text className="text-white text-xl font-bold">
+                        Verify Email
+                      </Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    onPress={handleClose}
+                    disabled={loading}
+                    className="p-2 rounded-full"
+                    style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+                  >
+                    <Icon name="close" size={22} color="white" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <ScrollView
+                className="px-5"
+                style={{ marginTop: -12 }}
+                showsVerticalScrollIndicator={false}
+                bounces={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View
+                  className="bg-white rounded-2xl p-5 mb-4"
+                  style={{
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.08,
+                    shadowRadius: 8,
+                    elevation: 4,
+                  }}
+                >
+                  <View className="items-center mb-5">
+                    <Text className="text-gray-500 text-center">
+                      We've sent a 6-digit verification code to
+                    </Text>
+                    <Text className="text-gray-800 font-bold mt-1">
+                      {email}
+                    </Text>
+                  </View>
+
+                  <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                    Enter OTP Code
+                  </Text>
+                  <TextInput
+                    value={otp}
+                    onChangeText={(text) =>
+                      setOtp(text.replace(/[^0-9]/g, "").slice(0, 6))
+                    }
+                    placeholder="000000"
+                    placeholderTextColor="#9CA3AF"
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-4 mb-4 text-center text-2xl font-bold tracking-widest"
+                  />
+
+                  <View className="items-center mb-4">
+                    {canResend ? (
+                      <TouchableOpacity onPress={handleResend}>
+                        <Text className="text-blue-500 font-medium">
+                          Resend Code
+                        </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <Text className="text-gray-500">
+                        Resend code in{" "}
+                        <Text className="font-bold text-blue-500">
+                          {resendTimer}s
+                        </Text>
+                      </Text>
+                    )}
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  onPress={() => onVerify(otp)}
+                  disabled={loading || otp.length !== 6}
+                  activeOpacity={0.8}
+                  className={`py-4 rounded-2xl items-center flex-row justify-center mb-8 ${
+                    loading || otp.length !== 6 ? "bg-gray-300" : "bg-blue-500"
+                  }`}
+                  style={
+                    otp.length === 6 && !loading
+                      ? {
+                          shadowColor: "#3B82F6",
+                          shadowOffset: { width: 0, height: 4 },
+                          shadowOpacity: 0.3,
+                          shadowRadius: 8,
+                          elevation: 4,
+                        }
+                      : {}
+                  }
+                >
+                  {loading ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <>
+                      <Icon
+                        name="check"
+                        size={20}
+                        color={otp.length !== 6 ? "#9CA3AF" : "white"}
+                      />
+                      <Text
+                        className={`font-bold ml-2 ${otp.length !== 6 ? "text-gray-500" : "text-white"}`}
+                      >
+                        Verify{" "}
+                        {purpose === "login" ? "& Login" : "& Create Account"}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          </Animated.View>
+        </KeyboardAvoidingView>
+      </View>
+    </Modal>
+  );
+}
+
 function RecoveryCodeModal({
   visible,
   recoveryCode,
   onConfirm,
+  toast,
 }: {
   visible: boolean;
   recoveryCode: string;
   onConfirm: () => void;
+  toast: ReturnType<typeof useToast>;
 }) {
   const [copied, setCopied] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const backdropAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setModalVisible(true);
+      setCopied(false);
+      slideAnim.setValue(SCREEN_HEIGHT);
+      backdropAnim.setValue(0);
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 65,
+          friction: 11,
+        }),
+        Animated.timing(backdropAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible]);
+
+  const handleConfirm = () => {
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: SCREEN_HEIGHT,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setModalVisible(false);
+      onConfirm();
+    });
+  };
 
   const handleCopy = async () => {
     await Clipboard.setStringAsync(recoveryCode);
     setCopied(true);
-    Toast.success("Recovery code copied!");
+    toast.success("Recovery code copied!");
   };
 
+  if (!modalVisible) return null;
+
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View className="flex-1 bg-black/50 justify-center items-center p-4">
-        <View className="bg-white rounded-2xl p-6 w-full max-w-md">
-          <View className="items-center mb-4">
-            <View className="w-16 h-16 bg-yellow-100 rounded-full items-center justify-center mb-4">
-              <Icon name="key-variant" size={32} color="#F59E0B" />
+    <Modal
+      visible={modalVisible}
+      animationType="none"
+      transparent
+      statusBarTranslucent
+    >
+      <Animated.View
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.5)",
+          opacity: backdropAnim,
+        }}
+      />
+
+      <Animated.View
+        style={{
+          position: "absolute",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          transform: [{ translateY: slideAnim }],
+        }}
+      >
+        <View
+          className="bg-white rounded-t-3xl overflow-hidden"
+          style={{
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: -4 },
+            shadowOpacity: 0.15,
+            shadowRadius: 12,
+            elevation: 20,
+          }}
+        >
+          <View className="items-center pt-3 pb-1">
+            <View className="w-10 h-1 bg-gray-300 rounded-full" />
+          </View>
+
+          <View className="bg-yellow-500 px-6 pt-4 pb-6">
+            <View className="flex-row items-center">
+              <View
+                className="w-12 h-12 rounded-2xl items-center justify-center"
+                style={{ backgroundColor: "rgba(255,255,255,0.25)" }}
+              >
+                <Icon name="key-variant" size={24} color="white" />
+              </View>
+              <View className="ml-3 flex-1">
+                <Text className="text-white/80 text-xs uppercase tracking-wider font-medium">
+                  Important
+                </Text>
+                <Text className="text-white text-xl font-bold">
+                  Save Recovery Code
+                </Text>
+              </View>
             </View>
-            <Text className="text-xl font-bold text-center">
-              Save Your Recovery Code
-            </Text>
-            <Text className="text-gray-500 text-center mt-2">
-              This code is the ONLY way to recover your vault if you forget your
-              password. Store it somewhere safe!
-            </Text>
           </View>
 
-          <View className="bg-gray-100 p-4 rounded-lg mb-4">
-            <Text className="font-mono text-center text-sm" selectable>
-              {recoveryCode}
-            </Text>
-          </View>
-
-          <TouchableOpacity
-            onPress={handleCopy}
-            className={`flex-row items-center justify-center py-3 rounded-lg mb-4 ${
-              copied ? "bg-green-100" : "bg-blue-100"
-            }`}
+          <ScrollView
+            className="px-5"
+            style={{ marginTop: -12 }}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
           >
-            <Icon
-              name={copied ? "check" : "content-copy"}
-              size={20}
-              color={copied ? "#16a34a" : "#3B82F6"}
-            />
-            <Text
-              className={`ml-2 font-medium ${copied ? "text-green-700" : "text-blue-700"}`}
+            <View
+              className="bg-white rounded-2xl p-5 mb-4"
+              style={{
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.08,
+                shadowRadius: 8,
+                elevation: 4,
+              }}
             >
-              {copied ? "Copied!" : "Copy to Clipboard"}
-            </Text>
-          </TouchableOpacity>
+              <Text className="text-gray-600 text-center mb-4">
+                This code is the{" "}
+                <Text className="font-bold text-gray-800">ONLY way</Text> to
+                recover your vault if you forget your password. Store it
+                somewhere safe!
+              </Text>
 
-          <View className="bg-red-50 p-3 rounded-lg mb-4">
-            <Text className="text-red-700 text-sm text-center">
-              ⚠️ We cannot recover this code. If you lose it, you lose access to
-              your vault.
-            </Text>
-          </View>
+              <View className="bg-gray-100 p-4 rounded-xl mb-4">
+                <Text className="font-mono text-center text-sm" selectable>
+                  {recoveryCode}
+                </Text>
+              </View>
 
-          <TouchableOpacity
-            onPress={onConfirm}
-            disabled={!copied}
-            className={`py-4 rounded-lg items-center ${
-              copied ? "bg-blue-500" : "bg-gray-300"
-            }`}
-          >
-            <Text
-              className={`font-semibold ${copied ? "text-white" : "text-gray-500"}`}
+              <TouchableOpacity
+                onPress={handleCopy}
+                activeOpacity={0.7}
+                className={`flex-row items-center justify-center py-3.5 rounded-xl mb-4 ${
+                  copied ? "bg-green-100" : "bg-blue-100"
+                }`}
+              >
+                <Icon
+                  name={copied ? "check" : "content-copy"}
+                  size={20}
+                  color={copied ? "#16a34a" : "#3B82F6"}
+                />
+                <Text
+                  className={`ml-2 font-bold ${copied ? "text-green-700" : "text-blue-700"}`}
+                >
+                  {copied ? "Copied!" : "Copy to Clipboard"}
+                </Text>
+              </TouchableOpacity>
+
+              <View className="bg-red-50 border border-red-200 p-4 rounded-xl">
+                <View className="flex-row items-center">
+                  <Icon name="alert-circle" size={20} color="#EF4444" />
+                  <Text className="text-red-700 text-sm ml-2 flex-1 font-medium">
+                    We cannot recover this code. If you lose it, you lose access
+                    to your vault.
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              onPress={handleConfirm}
+              disabled={!copied}
+              activeOpacity={0.8}
+              className={`py-4 rounded-2xl items-center flex-row justify-center mb-8 ${
+                copied ? "bg-blue-500" : "bg-gray-300"
+              }`}
+              style={
+                copied
+                  ? {
+                      shadowColor: "#3B82F6",
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.3,
+                      shadowRadius: 8,
+                      elevation: 4,
+                    }
+                  : {}
+              }
             >
-              I've Saved My Recovery Code
-            </Text>
-          </TouchableOpacity>
+              <Icon
+                name="check"
+                size={20}
+                color={copied ? "white" : "#9CA3AF"}
+              />
+              <Text
+                className={`font-bold ml-2 ${copied ? "text-white" : "text-gray-500"}`}
+              >
+                I've Saved My Recovery Code
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }
@@ -125,45 +603,209 @@ function RecoveryInputModal({
   onRecover: (code: string) => void;
 }) {
   const [code, setCode] = useState("");
+  const [modalVisible, setModalVisible] = useState(false);
+  const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const backdropAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setModalVisible(true);
+      setCode("");
+      slideAnim.setValue(SCREEN_HEIGHT);
+      backdropAnim.setValue(0);
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 65,
+          friction: 11,
+        }),
+        Animated.timing(backdropAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible]);
+
+  const handleClose = () => {
+    Keyboard.dismiss();
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: SCREEN_HEIGHT,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setModalVisible(false);
+      onClose();
+    });
+  };
+
+  if (!modalVisible) return null;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View className="flex-1 bg-black/50 justify-center items-center p-4">
-        <View className="bg-white rounded-2xl p-6 w-full max-w-md">
-          <View className="flex-row justify-between items-center mb-4">
-            <Text className="text-xl font-bold">Enter Recovery Code</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Icon name="close" size={24} color="#6B7280" />
-            </TouchableOpacity>
-          </View>
+    <Modal
+      visible={modalVisible}
+      animationType="none"
+      transparent
+      statusBarTranslucent
+      onRequestClose={handleClose}
+    >
+      <View style={{ flex: 1 }}>
+        <Animated.View
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0,0,0,0.5)",
+            opacity: backdropAnim,
+          }}
+        >
+          <Pressable style={{ flex: 1 }} onPress={handleClose} />
+        </Animated.View>
 
-          <Text className="text-gray-500 mb-4">
-            Enter your recovery code to restore access to your vault.
-          </Text>
-
-          <TextInput
-            value={code}
-            onChangeText={setCode}
-            placeholder="XXXX-XXXX-XXXX-XXXX-..."
-            autoCapitalize="none"
-            className="bg-gray-100 border border-gray-200 rounded-lg px-4 py-3 mb-4 font-mono"
-            multiline
-          />
-
-          <TouchableOpacity
-            onPress={() => onRecover(code)}
-            disabled={!code.trim()}
-            className={`py-4 rounded-lg items-center ${
-              code.trim() ? "bg-blue-500" : "bg-gray-300"
-            }`}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={{ flex: 1, justifyContent: "flex-end" }}
+          keyboardVerticalOffset={0}
+        >
+          <Animated.View
+            style={{
+              transform: [{ translateY: slideAnim }],
+            }}
           >
-            <Text
-              className={`font-semibold ${code.trim() ? "text-white" : "text-gray-500"}`}
+            <View
+              className="bg-white rounded-t-3xl overflow-hidden"
+              style={{
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: -4 },
+                shadowOpacity: 0.15,
+                shadowRadius: 12,
+                elevation: 20,
+              }}
             >
-              Recover Vault
-            </Text>
-          </TouchableOpacity>
-        </View>
+              {/* Drag handle */}
+              <View className="items-center pt-3 pb-1">
+                <View className="w-10 h-1 bg-gray-300 rounded-full" />
+              </View>
+
+              {/* Header */}
+              <View className="bg-blue-500 px-6 pt-4 pb-6">
+                <View className="flex-row justify-between items-center">
+                  <View className="flex-row items-center">
+                    <View
+                      className="w-12 h-12 rounded-2xl items-center justify-center"
+                      style={{ backgroundColor: "rgba(255,255,255,0.25)" }}
+                    >
+                      <Icon name="key-chain" size={24} color="white" />
+                    </View>
+                    <View className="ml-3">
+                      <Text className="text-white/80 text-xs uppercase tracking-wider font-medium">
+                        Recovery
+                      </Text>
+                      <Text className="text-white text-xl font-bold">
+                        Enter Recovery Code
+                      </Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    onPress={handleClose}
+                    className="p-2 rounded-full"
+                    style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+                  >
+                    <Icon name="close" size={22} color="white" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <ScrollView
+                className="px-5"
+                style={{ marginTop: -12 }}
+                showsVerticalScrollIndicator={false}
+                bounces={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View
+                  className="bg-white rounded-2xl p-5 mb-4"
+                  style={{
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.08,
+                    shadowRadius: 8,
+                    elevation: 4,
+                  }}
+                >
+                  <Text className="text-gray-600 mb-4">
+                    Enter your recovery code to restore access to your vault.
+                  </Text>
+
+                  <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                    Recovery Code
+                  </Text>
+                  <TextInput
+                    value={code}
+                    onChangeText={setCode}
+                    placeholder="XXXX-XXXX-XXXX-XXXX-..."
+                    placeholderTextColor="#9CA3AF"
+                    autoCapitalize="none"
+                    className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 font-mono text-base"
+                    multiline
+                  />
+                </View>
+
+                <View className="flex-row gap-3 mb-8">
+                  <TouchableOpacity
+                    onPress={handleClose}
+                    activeOpacity={0.7}
+                    className="flex-1 bg-gray-100 py-4 rounded-2xl items-center flex-row justify-center"
+                  >
+                    <Icon name="close" size={20} color="#6B7280" />
+                    <Text className="text-gray-700 font-bold ml-2">Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => onRecover(code)}
+                    disabled={!code.trim()}
+                    activeOpacity={0.8}
+                    className={`flex-1 py-4 rounded-2xl items-center flex-row justify-center ${
+                      code.trim() ? "bg-blue-500" : "bg-gray-300"
+                    }`}
+                    style={
+                      code.trim()
+                        ? {
+                            shadowColor: "#3B82F6",
+                            shadowOffset: { width: 0, height: 4 },
+                            shadowOpacity: 0.3,
+                            shadowRadius: 8,
+                            elevation: 4,
+                          }
+                        : {}
+                    }
+                  >
+                    <Icon
+                      name="shield-check"
+                      size={20}
+                      color={code.trim() ? "white" : "#9CA3AF"}
+                    />
+                    <Text
+                      className={`font-bold ml-2 ${code.trim() ? "text-white" : "text-gray-500"}`}
+                    >
+                      Recover
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
+          </Animated.View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -173,32 +815,59 @@ function ForgotPasswordModal({
   visible,
   onClose,
   onSuccess,
+  toast,
 }: {
   visible: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  toast: ReturnType<typeof useToast>;
 }) {
   const [email, setEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<"email" | "password">("email");
+  const [showSuccessAlert, setShowSuccessAlert] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const backdropAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setModalVisible(true);
+      slideAnim.setValue(SCREEN_HEIGHT);
+      backdropAnim.setValue(0);
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 65,
+          friction: 11,
+        }),
+        Animated.timing(backdropAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible]);
 
   const handleResetPassword = async () => {
     if (!email) {
-      Toast.error("Please enter your email");
+      toast.error("Please enter your email");
       return;
     }
     if (!newPassword || !confirmPassword) {
-      Toast.error("Please fill all password fields");
+      toast.error("Please fill all password fields");
       return;
     }
     if (newPassword !== confirmPassword) {
-      Toast.error("Passwords don't match");
+      toast.error("Passwords don't match");
       return;
     }
     if (newPassword.length < 6) {
-      Toast.error("Password must be at least 6 characters");
+      toast.error("Password must be at least 6 characters");
       return;
     }
 
@@ -215,133 +884,314 @@ function ForgotPasswordModal({
         throw new Error(data.error || "Failed to reset password");
       }
 
-      Alert.alert(
-        "Password Reset",
-        "Your password has been reset. You'll need to use your recovery code to restore your vault access.",
-        [{ text: "OK", onPress: onSuccess }],
-      );
-      setEmail("");
-      setNewPassword("");
-      setConfirmPassword("");
-      setStep("email");
+      setShowSuccessAlert(true);
     } catch (err: any) {
-      Toast.error(err.message || "Failed to reset password");
+      toast.error(err.message || "Failed to reset password");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleClose = () => {
+  const handleSuccessConfirm = () => {
+    setShowSuccessAlert(false);
     setEmail("");
     setNewPassword("");
     setConfirmPassword("");
     setStep("email");
-    onClose();
+    setModalVisible(false);
+    onSuccess();
   };
 
+  const handleClose = () => {
+    Keyboard.dismiss();
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: SCREEN_HEIGHT,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setEmail("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setStep("email");
+      setModalVisible(false);
+      onClose();
+    });
+  };
+
+  if (!modalVisible) return null;
+
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View className="flex-1 bg-black/50 justify-center items-center p-4">
-        <View className="bg-white rounded-2xl p-6 w-full max-w-md">
-          <View className="flex-row justify-between items-center mb-4">
-            <Text className="text-xl font-bold">Reset Password</Text>
-            <TouchableOpacity onPress={handleClose}>
-              <Icon name="close" size={24} color="#6B7280" />
-            </TouchableOpacity>
-          </View>
+    <>
+      <Modal
+        visible={modalVisible}
+        animationType="none"
+        transparent
+        statusBarTranslucent
+        onRequestClose={handleClose}
+      >
+        <View style={{ flex: 1 }}>
+          <Animated.View
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0,0,0,0.5)",
+              opacity: backdropAnim,
+            }}
+          >
+            <Pressable style={{ flex: 1 }} onPress={handleClose} />
+          </Animated.View>
 
-          {step === "email" ? (
-            <>
-              <Text className="text-gray-500 mb-4">
-                Enter your email to reset your password. You'll need your
-                recovery code to restore vault access.
-              </Text>
-
-              <TextInput
-                value={email}
-                onChangeText={setEmail}
-                placeholder="your@email.com"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                className="bg-gray-100 border border-gray-200 rounded-lg px-4 py-3 mb-4"
-              />
-
-              <TouchableOpacity
-                onPress={() => {
-                  if (!email) {
-                    Toast.error("Please enter your email");
-                    return;
-                  }
-                  setStep("password");
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={{ flex: 1, justifyContent: "flex-end" }}
+            keyboardVerticalOffset={0}
+          >
+            <Animated.View
+              style={{
+                transform: [{ translateY: slideAnim }],
+              }}
+            >
+              <View
+                className="bg-white rounded-t-3xl overflow-hidden"
+                style={{
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: -4 },
+                  shadowOpacity: 0.15,
+                  shadowRadius: 12,
+                  elevation: 20,
                 }}
-                className="py-4 rounded-lg items-center bg-blue-500"
               >
-                <Text className="text-white font-semibold">Continue</Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <View className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
-                <View className="flex-row items-center">
-                  <Icon name="alert" size={20} color="#F59E0B" />
-                  <Text className="text-yellow-700 text-sm ml-2 flex-1">
-                    You'll need your recovery code to restore vault access after
-                    resetting.
-                  </Text>
+                {/* Drag handle */}
+                <View className="items-center pt-3 pb-1">
+                  <View className="w-10 h-1 bg-gray-300 rounded-full" />
                 </View>
-              </View>
 
-              <Text className="text-sm text-gray-700 mb-1">New Password</Text>
-              <TextInput
-                value={newPassword}
-                onChangeText={setNewPassword}
-                secureTextEntry
-                placeholder="••••••••"
-                className="bg-gray-100 border border-gray-200 rounded-lg px-4 py-3 mb-4"
-              />
+                {/* Header */}
+                <View className="bg-blue-500 px-6 pt-4 pb-6">
+                  <View className="flex-row justify-between items-center">
+                    <View className="flex-row items-center">
+                      <View
+                        className="w-12 h-12 rounded-2xl items-center justify-center"
+                        style={{ backgroundColor: "rgba(255,255,255,0.25)" }}
+                      >
+                        <Icon name="lock-reset" size={24} color="white" />
+                      </View>
+                      <View className="ml-3">
+                        <Text className="text-white/80 text-xs uppercase tracking-wider font-medium">
+                          Account
+                        </Text>
+                        <Text className="text-white text-xl font-bold">
+                          Reset Password
+                        </Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      onPress={handleClose}
+                      className="p-2 rounded-full"
+                      style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+                    >
+                      <Icon name="close" size={22} color="white" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
 
-              <Text className="text-sm text-gray-700 mb-1">
-                Confirm Password
-              </Text>
-              <TextInput
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry
-                placeholder="••••••••"
-                className="bg-gray-100 border border-gray-200 rounded-lg px-4 py-3 mb-4"
-              />
-
-              <View className="flex-row gap-3">
-                <TouchableOpacity
-                  onPress={() => setStep("email")}
-                  className="flex-1 py-4 rounded-lg items-center bg-gray-200"
+                <ScrollView
+                  className="px-5"
+                  style={{ marginTop: -12 }}
+                  showsVerticalScrollIndicator={false}
+                  bounces={false}
+                  keyboardShouldPersistTaps="handled"
                 >
-                  <Text className="text-gray-700 font-semibold">Back</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={handleResetPassword}
-                  disabled={loading}
-                  className={`flex-1 py-4 rounded-lg items-center ${loading ? "bg-gray-400" : "bg-blue-500"}`}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="white" />
+                  <View
+                    className="bg-white rounded-2xl p-5 mb-4"
+                    style={{
+                      shadowColor: "#000",
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.08,
+                      shadowRadius: 8,
+                      elevation: 4,
+                    }}
+                  >
+                    {step === "email" ? (
+                      <>
+                        <Text className="text-gray-600 mb-4">
+                          Enter your email to reset your password. You'll need
+                          your recovery code to restore vault access.
+                        </Text>
+
+                        <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                          Email Address
+                        </Text>
+                        <View className="flex-row items-center bg-gray-50 rounded-xl border border-gray-100 mb-4">
+                          <View className="p-3">
+                            <Icon
+                              name="email-outline"
+                              size={20}
+                              color="#6B7280"
+                            />
+                          </View>
+                          <TextInput
+                            value={email}
+                            onChangeText={setEmail}
+                            placeholder="your@email.com"
+                            placeholderTextColor="#9CA3AF"
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                            className="flex-1 py-3.5 pr-4 text-base"
+                          />
+                        </View>
+                      </>
+                    ) : (
+                      <>
+                        <View className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-4 flex-row items-center">
+                          <Icon name="alert" size={20} color="#F59E0B" />
+                          <Text className="text-yellow-700 text-sm ml-3 flex-1">
+                            You'll need your recovery code to restore vault
+                            access after resetting.
+                          </Text>
+                        </View>
+
+                        <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                          New Password
+                        </Text>
+                        <View className="flex-row items-center bg-gray-50 rounded-xl border border-gray-100 mb-4">
+                          <View className="p-3">
+                            <Icon
+                              name="lock-outline"
+                              size={20}
+                              color="#6B7280"
+                            />
+                          </View>
+                          <TextInput
+                            value={newPassword}
+                            onChangeText={setNewPassword}
+                            secureTextEntry
+                            placeholder="••••••••"
+                            placeholderTextColor="#9CA3AF"
+                            className="flex-1 py-3.5 pr-4 text-base"
+                          />
+                        </View>
+
+                        <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                          Confirm Password
+                        </Text>
+                        <View className="flex-row items-center bg-gray-50 rounded-xl border border-gray-100">
+                          <View className="p-3">
+                            <Icon
+                              name="lock-check-outline"
+                              size={20}
+                              color="#6B7280"
+                            />
+                          </View>
+                          <TextInput
+                            value={confirmPassword}
+                            onChangeText={setConfirmPassword}
+                            secureTextEntry
+                            placeholder="••••••••"
+                            placeholderTextColor="#9CA3AF"
+                            className="flex-1 py-3.5 pr-4 text-base"
+                          />
+                        </View>
+                      </>
+                    )}
+                  </View>
+
+                  {step === "email" ? (
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (!email) {
+                          toast.error("Please enter your email");
+                          return;
+                        }
+                        setStep("password");
+                      }}
+                      activeOpacity={0.8}
+                      className="py-4 rounded-2xl items-center flex-row justify-center mb-8 bg-blue-500"
+                      style={{
+                        shadowColor: "#3B82F6",
+                        shadowOffset: { width: 0, height: 4 },
+                        shadowOpacity: 0.3,
+                        shadowRadius: 8,
+                        elevation: 4,
+                      }}
+                    >
+                      <Icon name="arrow-right" size={20} color="white" />
+                      <Text className="text-white font-bold ml-2">
+                        Continue
+                      </Text>
+                    </TouchableOpacity>
                   ) : (
-                    <Text className="text-white font-semibold">
-                      Reset Password
-                    </Text>
+                    <View className="flex-row gap-3 mb-8">
+                      <TouchableOpacity
+                        onPress={() => setStep("email")}
+                        activeOpacity={0.7}
+                        className="flex-1 bg-gray-100 py-4 rounded-2xl items-center flex-row justify-center"
+                      >
+                        <Icon name="arrow-left" size={20} color="#6B7280" />
+                        <Text className="text-gray-700 font-bold ml-2">
+                          Back
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={handleResetPassword}
+                        disabled={loading}
+                        activeOpacity={0.8}
+                        className={`flex-1 py-4 rounded-2xl items-center flex-row justify-center ${loading ? "bg-gray-400" : "bg-blue-500"}`}
+                        style={
+                          !loading
+                            ? {
+                                shadowColor: "#3B82F6",
+                                shadowOffset: { width: 0, height: 4 },
+                                shadowOpacity: 0.3,
+                                shadowRadius: 8,
+                                elevation: 4,
+                              }
+                            : {}
+                        }
+                      >
+                        {loading ? (
+                          <ActivityIndicator color="white" />
+                        ) : (
+                          <>
+                            <Icon name="check" size={20} color="white" />
+                            <Text className="text-white font-bold ml-2">
+                              Reset
+                            </Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </View>
                   )}
-                </TouchableOpacity>
+                </ScrollView>
               </View>
-            </>
-          )}
+            </Animated.View>
+          </KeyboardAvoidingView>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+      <CustomAlert
+        visible={showSuccessAlert}
+        title="Password Reset"
+        message="Your password has been reset. You'll need to use your recovery code to restore your vault access."
+        buttons={[{ text: "OK", onPress: handleSuccessConfirm }]}
+        onClose={handleSuccessConfirm}
+      />
+    </>
   );
 }
 
 export default function AuthScreen() {
   const navigation = useNavigation();
+  const toast = useToast();
   const [isLogin, setIsLogin] = useState(true);
   const [fullname, setFullname] = useState("");
   const [email, setEmail] = useState("");
@@ -352,6 +1202,21 @@ export default function AuthScreen() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [generatedRecoveryCode, setGeneratedRecoveryCode] = useState("");
   const [pendingLoginData, setPendingLoginData] = useState<any>(null);
+
+  // OTP verification states
+  const [showOTPModal, setShowOTPModal] = useState(false);
+  const [otpPurpose, setOtpPurpose] = useState<"login" | "register">("login");
+  const [pendingRegData, setPendingRegData] = useState<{
+    aesKey: string;
+    recoveryKey: string;
+    masterSalt: string;
+    recoverySalt: string;
+    aesEncryptedWithMaster: any;
+    aesEncryptedWithRecovery: any;
+    masterPasswordHash: string;
+  } | null>(null);
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [showEncryptionKeyAlert, setShowEncryptionKeyAlert] = useState(false);
 
   // Register device after login
   const registerDevice = async (accessToken: string) => {
@@ -384,6 +1249,171 @@ export default function AuthScreen() {
     }
   };
 
+  // Step 1: Send OTP for registration
+  const sendRegisterOTPMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`${API_URL}/auth/send-register-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, fullname }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to send OTP");
+      return data;
+    },
+    onSuccess: async () => {
+      // Pre-generate crypto data while user enters OTP
+      const aesKey = await generateRandomAESKey();
+      const masterSalt = await generateSalt();
+      const recoverySalt = await generateSalt();
+      const recoveryKey = await generateRecoveryKey();
+
+      const aesEncryptedWithMaster = await encryptAESKeyWithMasterPassword(
+        aesKey,
+        password,
+        masterSalt,
+      );
+      const aesEncryptedWithRecovery = await encryptAESKeyWithRecoveryKey(
+        aesKey,
+        recoveryKey,
+        recoverySalt,
+      );
+      const masterPasswordHash = deriveMasterPasswordHash(password, masterSalt);
+
+      setPendingRegData({
+        aesKey,
+        recoveryKey,
+        masterSalt,
+        recoverySalt,
+        aesEncryptedWithMaster,
+        aesEncryptedWithRecovery,
+        masterPasswordHash,
+      });
+
+      setOtpPurpose("register");
+      setShowOTPModal(true);
+      toast.success("OTP sent to your email!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to send OTP");
+    },
+  });
+
+  // Step 2: Verify OTP and complete registration
+  const verifyRegisterOTP = async (otp: string) => {
+    if (!pendingRegData) return;
+
+    setOtpLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullname,
+          email,
+          password,
+          otp,
+          masterPasswordHash: pendingRegData.masterPasswordHash,
+          masterSalt: pendingRegData.masterSalt,
+          recoverySalt: pendingRegData.recoverySalt,
+          aesHashKeyMaster: pendingRegData.aesEncryptedWithMaster,
+          aesHashKeyRecovery: pendingRegData.aesEncryptedWithRecovery,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Registration failed");
+
+      await SecureStore.setItemAsync("aesKey", pendingRegData.aesKey);
+
+      // Store tokens from auto-login
+      if (data.accessToken) {
+        await SecureStore.setItemAsync("accessToken", data.accessToken);
+      }
+      if (data.refreshToken) {
+        await SecureStore.setItemAsync("refreshToken", data.refreshToken);
+      }
+
+      // Register device after auto-login
+      if (data.accessToken) {
+        await registerDevice(data.accessToken);
+      }
+
+      setGeneratedRecoveryCode(pendingRegData.recoveryKey);
+      setShowOTPModal(false);
+      setShowRecoveryCode(true);
+      setPendingRegData(null);
+    } catch (err: any) {
+      toast.error(err.message || "Invalid OTP");
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  // Step 1: Send OTP for login
+  const sendLoginOTPMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`${API_URL}/auth/send-login-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to send OTP");
+      return data;
+    },
+    onSuccess: () => {
+      setOtpPurpose("login");
+      setShowOTPModal(true);
+      toast.success("OTP sent to your email!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Login failed");
+    },
+  });
+
+  // Step 2: Verify OTP and complete login
+  const verifyLoginOTP = async (otp: string) => {
+    setOtpLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, otp }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Login failed");
+
+      if (data.accessToken) {
+        await SecureStore.setItemAsync("accessToken", data.accessToken);
+      }
+      if (data.refreshToken) {
+        await SecureStore.setItemAsync("refreshToken", data.refreshToken);
+      }
+
+      if (data.accessToken) {
+        await registerDevice(data.accessToken);
+      }
+
+      // Check if we have AES key locally
+      const existingKey = await SecureStore.getItemAsync("aesKey");
+      if (existingKey) {
+        setShowOTPModal(false);
+        toast.success("Logged in!");
+        navigation.navigate("home" as never);
+      } else {
+        setPendingLoginData(data);
+        setShowOTPModal(false);
+        setShowEncryptionKeyAlert(true);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Invalid OTP");
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  // Legacy mutations kept for compatibility but now use OTP flow
   const registerMutation = useMutation({
     mutationFn: async () => {
       const aesKey = await generateRandomAESKey();
@@ -436,7 +1466,7 @@ export default function AuthScreen() {
       setShowRecoveryCode(true);
     },
     onError: (err: any) => {
-      Toast.error(err.message || "Registration failed");
+      toast.error(err.message || "Registration failed");
     },
   });
 
@@ -467,35 +1497,30 @@ export default function AuthScreen() {
       // Check if we have AES key locally
       const existingKey = await SecureStore.getItemAsync("aesKey");
       if (existingKey) {
-        Toast.success("Logged in!");
+        toast.success("Logged in!");
         navigation.navigate("home" as never);
       } else {
         setPendingLoginData(data);
-        Alert.alert(
-          "Encryption Key Missing",
-          "Your local encryption key was cleared. Enter your recovery code to restore access.",
-          [
-            {
-              text: "Enter Recovery Code",
-              onPress: () => setShowRecoveryInput(true),
-            },
-            { text: "Cancel", style: "cancel" },
-          ],
-        );
+        setShowEncryptionKeyAlert(true);
       }
     },
     onError: (err: any) => {
-      Toast.error(err.message || "Login failed");
+      toast.error(err.message || "Login failed");
     },
   });
+
+  const [showRecoveryFailedAlert, setShowRecoveryFailedAlert] = useState(false);
+  const [recoveryFailedMessage, setRecoveryFailedMessage] = useState("");
 
   const handleRecoveryCodeConfirm = () => {
     setShowRecoveryCode(false);
     setGeneratedRecoveryCode("");
-    Toast.success("Account created! Please login.");
-    setIsLogin(true);
     setFullname("");
     setPassword("");
+    setEmail("");
+    toast.success("Account created! Logging you in...");
+    // Navigate to home since user is already logged in after registration
+    navigation.navigate("home" as never);
   };
 
   const handleRecover = async (code: string) => {
@@ -524,30 +1549,48 @@ export default function AuthScreen() {
       // Store recovered AES key
       await SecureStore.setItemAsync("aesKey", aesKey);
       setShowRecoveryInput(false);
-      Toast.success("Vault recovered!");
+      toast.success("Vault recovered!");
       navigation.navigate("home" as never);
     } catch (err: any) {
-      Alert.alert("Recovery Failed", err.message || "Invalid recovery code");
+      setRecoveryFailedMessage(err.message || "Invalid recovery code");
+      setShowRecoveryFailedAlert(true);
     }
   };
 
   const handleSubmit = () => {
     if (!email || !password || (!isLogin && !fullname)) {
-      Toast.error("Please fill all fields");
+      toast.error("Please fill all fields");
       return;
     }
     if (password.length < 6) {
-      Toast.error("Password must be at least 6 characters");
+      toast.error("Password must be at least 6 characters");
       return;
     }
     if (isLogin) {
-      loginMutation.mutate();
+      sendLoginOTPMutation.mutate();
     } else {
-      registerMutation.mutate();
+      sendRegisterOTPMutation.mutate();
     }
   };
 
-  const loading = loginMutation.isPending || registerMutation.isPending;
+  const handleResendOTP = () => {
+    if (otpPurpose === "login") {
+      sendLoginOTPMutation.mutate();
+    } else {
+      sendRegisterOTPMutation.mutate();
+    }
+  };
+
+  const handleVerifyOTP = (otp: string) => {
+    if (otpPurpose === "login") {
+      verifyLoginOTP(otp);
+    } else {
+      verifyRegisterOTP(otp);
+    }
+  };
+
+  const loading =
+    sendLoginOTPMutation.isPending || sendRegisterOTPMutation.isPending;
 
   return (
     <KeyboardAvoidingView
@@ -681,6 +1724,7 @@ export default function AuthScreen() {
         visible={showRecoveryCode}
         recoveryCode={generatedRecoveryCode}
         onConfirm={handleRecoveryCodeConfirm}
+        toast={toast}
       />
 
       <RecoveryInputModal
@@ -696,6 +1740,38 @@ export default function AuthScreen() {
           setShowForgotPassword(false);
           setShowRecoveryInput(true);
         }}
+        toast={toast}
+      />
+
+      <OTPModal
+        visible={showOTPModal}
+        email={email}
+        onVerify={handleVerifyOTP}
+        onResend={handleResendOTP}
+        onClose={() => setShowOTPModal(false)}
+        loading={otpLoading}
+        purpose={otpPurpose}
+      />
+
+      <CustomAlert
+        visible={showEncryptionKeyAlert}
+        title="Encryption Key Missing"
+        message="Your local encryption key was cleared. Enter your recovery code to restore access."
+        buttons={[
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Enter Recovery Code",
+            onPress: () => setShowRecoveryInput(true),
+          },
+        ]}
+        onClose={() => setShowEncryptionKeyAlert(false)}
+      />
+
+      <CustomAlert
+        visible={showRecoveryFailedAlert}
+        title="Recovery Failed"
+        message={recoveryFailedMessage}
+        onClose={() => setShowRecoveryFailedAlert(false)}
       />
     </KeyboardAvoidingView>
   );

@@ -1,13 +1,11 @@
 import Icon from "@expo/vector-icons/MaterialCommunityIcons";
 import { Tabs } from "expo-router";
 import { View } from "react-native";
-import ToastManager from "toastify-react-native";
 
 
 export default function TabsLayout() {
   return (
     <View style={{ flex: 1 }}>
-      <ToastManager />
       <Tabs
         screenOptions={{
           headerStyle: { backgroundColor: "#fff" },

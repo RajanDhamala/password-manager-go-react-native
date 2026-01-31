@@ -1,13 +1,13 @@
 package controller
 
-//
 import (
-	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
 	"goPass/config"
 	"goPass/models"
-	"gorm.io/datatypes"
 	"log"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
+	"gorm.io/datatypes"
 )
 
 type RegisterVaultEntryRequest struct {
@@ -64,14 +64,12 @@ func CheckIfVaultRegistered(c *fiber.Ctx) error {
 		log.Println("not found in db")
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "user not found in",
-	 "registered":false, 	
+	 "registered":false,
 		})
 	}
 	log.Println("found in db")
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Vault initilization found",
-	 "registered": true, 	
+	 "registered": true,
 	})
 }
-
-

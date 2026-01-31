@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   ScrollView,
   Text,
@@ -8,6 +8,11 @@ import {
   View,
   Alert,
   Modal,
+  Animated,
+  Dimensions,
+  Pressable,
+  PanResponder,
+  Keyboard,
 } from "react-native";
 
 import { useNavigation } from "@react-navigation/native";
@@ -17,6 +22,8 @@ import * as Crypto from "expo-crypto";
 import * as Clipboard from "expo-clipboard";
 import { encryptPassword } from "@/utils/crypto";
 import { useQueryClient } from "@tanstack/react-query";
+
+const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get("window");
 
 function hexToBytes(hex: string): number[] {
   const bytes: number[] = [];
@@ -70,6 +77,80 @@ function PasswordGenerator({
   const [useNumbers, setUseNumbers] = useState(true);
   const [useSymbols, setUseSymbols] = useState(true);
   const [generated, setGenerated] = useState("");
+  const [modalVisible, setModalVisible] = useState(false);
+
+  const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const backdropAnim = useRef(new Animated.Value(0)).current;
+
+  const SLIDER_WIDTH = SCREEN_WIDTH - 80;
+  const MIN_LENGTH = 8;
+  const MAX_LENGTH = 32;
+  const sliderPosition = useRef(
+    new Animated.Value(
+      ((length - MIN_LENGTH) / (MAX_LENGTH - MIN_LENGTH)) * SLIDER_WIDTH,
+    ),
+  ).current;
+
+  useEffect(() => {
+    if (visible) {
+      setModalVisible(true);
+      setGenerated("");
+      slideAnim.setValue(SCREEN_HEIGHT);
+      backdropAnim.setValue(0);
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 65,
+          friction: 11,
+        }),
+        Animated.timing(backdropAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible]);
+
+  const handleClose = () => {
+    Keyboard.dismiss();
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: SCREEN_HEIGHT,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setModalVisible(false);
+      onClose();
+    });
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {},
+      onPanResponderMove: (_, gestureState) => {
+        const newPosition = Math.max(
+          0,
+          Math.min(SLIDER_WIDTH, gestureState.moveX - 40),
+        );
+        sliderPosition.setValue(newPosition);
+        const newLength = Math.round(
+          MIN_LENGTH + (newPosition / SLIDER_WIDTH) * (MAX_LENGTH - MIN_LENGTH),
+        );
+        setLength(newLength);
+      },
+      onPanResponderRelease: () => {},
+    }),
+  ).current;
 
   const generatePassword = async () => {
     let chars = "";
@@ -91,115 +172,345 @@ function PasswordGenerator({
     setGenerated(pwd);
   };
 
+  const updateLength = (newLength: number) => {
+    const clampedLength = Math.max(MIN_LENGTH, Math.min(MAX_LENGTH, newLength));
+    setLength(clampedLength);
+    const newPosition =
+      ((clampedLength - MIN_LENGTH) / (MAX_LENGTH - MIN_LENGTH)) * SLIDER_WIDTH;
+    Animated.spring(sliderPosition, {
+      toValue: newPosition,
+      useNativeDriver: false,
+      tension: 100,
+      friction: 10,
+    }).start();
+  };
+
   const Option = ({
     label,
+    icon,
     value,
     onToggle,
   }: {
     label: string;
+    icon: string;
     value: boolean;
     onToggle: () => void;
   }) => (
     <TouchableOpacity
       onPress={onToggle}
-      className={`flex-row items-center justify-between py-3 px-4 mb-2 rounded-lg ${
+      activeOpacity={0.7}
+      className={`flex-row items-center justify-between py-3.5 px-4 mb-2 rounded-xl ${
         value
-          ? "bg-blue-50 border border-blue-200"
+          ? "bg-blue-50 border-2 border-blue-300"
           : "bg-gray-50 border border-gray-200"
       }`}
     >
-      <Text className={value ? "text-blue-700" : "text-gray-600"}>{label}</Text>
+      <View className="flex-row items-center">
+        <View
+          className={`w-8 h-8 rounded-lg items-center justify-center mr-3 ${value ? "bg-blue-100" : "bg-gray-200"}`}
+        >
+          <MaterialCommunityIcons
+            name={icon as any}
+            size={18}
+            color={value ? "#3B82F6" : "#6B7280"}
+          />
+        </View>
+        <Text
+          className={`text-base ${value ? "text-blue-700 font-medium" : "text-gray-600"}`}
+        >
+          {label}
+        </Text>
+      </View>
       <MaterialCommunityIcons
-        name={value ? "checkbox-marked" : "checkbox-blank-outline"}
-        size={24}
-        color={value ? "#3B82F6" : "#9CA3AF"}
+        name={
+          value ? "checkbox-marked-circle" : "checkbox-blank-circle-outline"
+        }
+        size={26}
+        color={value ? "#3B82F6" : "#D1D5DB"}
       />
     </TouchableOpacity>
   );
 
+  if (!modalVisible) return null;
+
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View className="flex-1 bg-black/50 justify-end">
-        <View className="bg-white rounded-t-3xl p-6 max-h-[80%]">
-          <View className="flex-row justify-between items-center mb-6">
-            <Text className="text-xl font-bold">Password Generator</Text>
-            <TouchableOpacity onPress={onClose}>
-              <MaterialCommunityIcons name="close" size={24} color="#6B7280" />
-            </TouchableOpacity>
+    <Modal
+      visible={modalVisible}
+      animationType="none"
+      transparent
+      statusBarTranslucent
+      onRequestClose={handleClose}
+    >
+      <Animated.View
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.5)",
+          opacity: backdropAnim,
+        }}
+      >
+        <Pressable style={{ flex: 1 }} onPress={handleClose} />
+      </Animated.View>
+
+      <Animated.View
+        style={{
+          position: "absolute",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          transform: [{ translateY: slideAnim }],
+        }}
+      >
+        <View
+          className="bg-white rounded-t-3xl overflow-hidden"
+          style={{
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: -4 },
+            shadowOpacity: 0.15,
+            shadowRadius: 12,
+            elevation: 20,
+          }}
+        >
+          <View className="items-center pt-3 pb-1">
+            <View className="w-10 h-1 bg-gray-300 rounded-full" />
           </View>
 
-          <Text className="text-sm font-medium text-gray-700 mb-2">
-            Length: {length} characters
-          </Text>
-          <View className="flex-row items-center mb-4">
-            <TouchableOpacity
-              onPress={() => setLength(Math.max(8, length - 1))}
-              className="bg-gray-200 p-2 rounded-lg"
-            >
-              <MaterialCommunityIcons name="minus" size={20} color="#374151" />
-            </TouchableOpacity>
-            <View className="flex-1 mx-4 h-2 bg-gray-200 rounded-full">
-              <View
-                className="h-2 bg-blue-500 rounded-full"
-                style={{ width: `${((length - 8) / 24) * 100}%` }}
-              />
-            </View>
-            <TouchableOpacity
-              onPress={() => setLength(Math.min(32, length + 1))}
-              className="bg-gray-200 p-2 rounded-lg"
-            >
-              <MaterialCommunityIcons name="plus" size={20} color="#374151" />
-            </TouchableOpacity>
-          </View>
-
-          <Option
-            label="Uppercase (A-Z)"
-            value={useUppercase}
-            onToggle={() => setUseUppercase(!useUppercase)}
-          />
-          <Option
-            label="Lowercase (a-z)"
-            value={useLowercase}
-            onToggle={() => setUseLowercase(!useLowercase)}
-          />
-          <Option
-            label="Numbers (0-9)"
-            value={useNumbers}
-            onToggle={() => setUseNumbers(!useNumbers)}
-          />
-          <Option
-            label="Symbols (!@#$%)"
-            value={useSymbols}
-            onToggle={() => setUseSymbols(!useSymbols)}
-          />
-
-          <TouchableOpacity
-            onPress={generatePassword}
-            className="bg-blue-500 py-3 rounded-lg items-center mt-4"
-          >
-            <Text className="text-white font-semibold">Generate Password</Text>
-          </TouchableOpacity>
-
-          {generated && (
-            <View className="mt-4 p-4 bg-gray-100 rounded-lg">
-              <Text className="font-mono text-center text-lg" selectable>
-                {generated}
-              </Text>
+          <View className="bg-blue-500 px-6 pt-4 pb-6">
+            <View className="flex-row justify-between items-center">
+              <View className="flex-row items-center">
+                <View
+                  className="w-12 h-12 rounded-2xl items-center justify-center"
+                  style={{ backgroundColor: "rgba(255,255,255,0.25)" }}
+                >
+                  <MaterialCommunityIcons
+                    name="auto-fix"
+                    size={24}
+                    color="white"
+                  />
+                </View>
+                <View className="ml-3">
+                  <Text className="text-white/80 text-xs uppercase tracking-wider font-medium">
+                    Secure
+                  </Text>
+                  <Text className="text-white text-xl font-bold">
+                    Password Generator
+                  </Text>
+                </View>
+              </View>
               <TouchableOpacity
-                onPress={() => {
-                  onSelect(generated);
-                  onClose();
-                }}
-                className="bg-green-500 py-3 rounded-lg items-center mt-4"
+                onPress={handleClose}
+                className="p-2 rounded-full"
+                style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
               >
-                <Text className="text-white font-semibold">
-                  Use This Password
-                </Text>
+                <MaterialCommunityIcons name="close" size={22} color="white" />
               </TouchableOpacity>
             </View>
-          )}
+          </View>
+
+          <ScrollView
+            className="px-5"
+            style={{ marginTop: -12 }}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            <View
+              className="bg-white rounded-2xl p-5 mb-4"
+              style={{
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.08,
+                shadowRadius: 8,
+                elevation: 4,
+              }}
+            >
+              <View className="mb-5">
+                <View className="flex-row justify-between items-center mb-3">
+                  <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    Password Length
+                  </Text>
+                  <View className="bg-blue-100 px-3 py-1 rounded-full">
+                    <Text className="text-blue-700 font-bold text-sm">
+                      {length} chars
+                    </Text>
+                  </View>
+                </View>
+
+                <View
+                  className="h-14 justify-center"
+                  {...panResponder.panHandlers}
+                >
+                  <View className="flex-row items-center">
+                    <TouchableOpacity
+                      onPress={() => updateLength(length - 1)}
+                      className="bg-gray-100 p-2.5 rounded-xl mr-3"
+                      activeOpacity={0.7}
+                    >
+                      <MaterialCommunityIcons
+                        name="minus"
+                        size={18}
+                        color="#374151"
+                      />
+                    </TouchableOpacity>
+
+                    <View className="flex-1 h-3 bg-gray-200 rounded-full overflow-hidden">
+                      <Animated.View
+                        className="h-3 bg-blue-500 rounded-full"
+                        style={{ width: sliderPosition }}
+                      />
+                      <Animated.View
+                        style={{
+                          position: "absolute",
+                          left: sliderPosition,
+                          top: -6,
+                          width: 24,
+                          height: 24,
+                          borderRadius: 12,
+                          backgroundColor: "#3B82F6",
+                          marginLeft: -12,
+                          shadowColor: "#3B82F6",
+                          shadowOffset: { width: 0, height: 2 },
+                          shadowOpacity: 0.4,
+                          shadowRadius: 4,
+                          elevation: 4,
+                          borderWidth: 3,
+                          borderColor: "white",
+                        }}
+                      />
+                    </View>
+
+                    <TouchableOpacity
+                      onPress={() => updateLength(length + 1)}
+                      className="bg-gray-100 p-2.5 rounded-xl ml-3"
+                      activeOpacity={0.7}
+                    >
+                      <MaterialCommunityIcons
+                        name="plus"
+                        size={18}
+                        color="#374151"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  <View className="flex-row justify-between mt-2 px-12">
+                    <Text className="text-xs text-gray-400">{MIN_LENGTH}</Text>
+                    <Text className="text-xs text-gray-400">{MAX_LENGTH}</Text>
+                  </View>
+                </View>
+              </View>
+
+              <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
+                Include Characters
+              </Text>
+              <Option
+                label="Uppercase (A-Z)"
+                icon="format-letter-case-upper"
+                value={useUppercase}
+                onToggle={() => setUseUppercase(!useUppercase)}
+              />
+              <Option
+                label="Lowercase (a-z)"
+                icon="format-letter-case-lower"
+                value={useLowercase}
+                onToggle={() => setUseLowercase(!useLowercase)}
+              />
+              <Option
+                label="Numbers (0-9)"
+                icon="numeric"
+                value={useNumbers}
+                onToggle={() => setUseNumbers(!useNumbers)}
+              />
+              <Option
+                label="Symbols (!@#$%)"
+                icon="code-brackets"
+                value={useSymbols}
+                onToggle={() => setUseSymbols(!useSymbols)}
+              />
+            </View>
+
+            <TouchableOpacity
+              onPress={generatePassword}
+              activeOpacity={0.8}
+              className="bg-blue-500 py-4 rounded-2xl items-center flex-row justify-center mb-4"
+              style={{
+                shadowColor: "#3B82F6",
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 8,
+                elevation: 4,
+              }}
+            >
+              <MaterialCommunityIcons name="refresh" size={20} color="white" />
+              <Text className="text-white font-bold text-base ml-2">
+                Generate Password
+              </Text>
+            </TouchableOpacity>
+
+            {generated && (
+              <View
+                className="bg-gray-50 rounded-2xl p-5 mb-8"
+                style={{
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.05,
+                  shadowRadius: 4,
+                  elevation: 2,
+                }}
+              >
+                <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
+                  Generated Password
+                </Text>
+                <View className="bg-white rounded-xl p-4 border border-gray-200 mb-4">
+                  <Text
+                    className="font-mono text-lg text-gray-800 text-center"
+                    selectable
+                  >
+                    {generated}
+                  </Text>
+                </View>
+                <View className="flex-row gap-3">
+                  <TouchableOpacity
+                    onPress={async () => {
+                      await Clipboard.setStringAsync(generated);
+                      Alert.alert("Copied!", "Password copied to clipboard");
+                    }}
+                    activeOpacity={0.7}
+                    className="flex-1 bg-gray-100 py-3.5 rounded-xl items-center flex-row justify-center"
+                  >
+                    <MaterialCommunityIcons
+                      name="content-copy"
+                      size={18}
+                      color="#6B7280"
+                    />
+                    <Text className="text-gray-700 font-bold ml-2">Copy</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      onSelect(generated);
+                      handleClose();
+                    }}
+                    activeOpacity={0.7}
+                    className="flex-1 bg-blue-500 py-3.5 rounded-xl items-center flex-row justify-center"
+                    style={{
+                      shadowColor: "#3B82F6",
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.3,
+                      shadowRadius: 8,
+                      elevation: 4,
+                    }}
+                  >
+                    <MaterialCommunityIcons
+                      name="check"
+                      size={18}
+                      color="white"
+                    />
+                    <Text className="text-white font-bold ml-2">Use This</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {!generated && <View className="h-8" />}
+          </ScrollView>
         </View>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }
@@ -302,7 +613,6 @@ export default function AddPasswordPage() {
         { text: "OK", onPress: () => navigation.navigate("home" as never) },
       ]);
 
-      // Reset
       setPlatform("");
       setCustomPlatform("");
       setTitle("");

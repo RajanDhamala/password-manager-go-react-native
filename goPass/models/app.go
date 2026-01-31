@@ -54,3 +54,13 @@ type VaultEntry struct {
 	Deleted           bool    `gorm:"default:false"`
 	User              AppUser `gorm:"foreignKey:UserID"`
 }
+
+// OTP model for database storage
+type OTP struct {
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Email     string    `gorm:"not null;index"`
+	Code      string    `gorm:"not null"`
+	Purpose   string    `gorm:"not null"` // "login" or "register"
+	ExpiresAt time.Time `gorm:"not null"`
+	CreatedAt time.Time
+}

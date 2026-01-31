@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons as Icon } from "@expo/vector-icons";
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import Toast from "react-native-toast-message";
 import {
   FlatList,
   Text,
@@ -11,7 +12,15 @@ import {
   RefreshControl,
   Modal,
   ScrollView,
+  Animated,
+  Dimensions,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  Keyboard,
 } from "react-native";
+
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
@@ -23,7 +32,6 @@ import api from "@/utils/AxiosWrapper";
 import { decryptPassword, encryptPassword } from "@/utils/crypto";
 import { authenticateWithBiometrics } from "@/utils/securityHelpers";
 
-// Platform icon mapping
 const PLATFORM_ICONS: Record<string, { icon: string; color: string }> = {
   Gmail: { icon: "gmail", color: "#DB4437" },
   Google: { icon: "google", color: "#4285F4" },
@@ -196,6 +204,7 @@ export default function Home() {
   const [decryptingId, setDecryptingId] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<VaultEntry | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [decryptedPassword, setDecryptedPassword] = useState("");
   const [isDecrypting, setIsDecrypting] = useState(false);
@@ -210,6 +219,29 @@ export default function Home() {
   });
   const [isSaving, setIsSaving] = useState(false);
   const [showBreachedOnly, setShowBreachedOnly] = useState(false);
+  const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const backdropAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (showDetailModal) {
+      setModalVisible(true);
+      slideAnim.setValue(SCREEN_HEIGHT);
+      backdropAnim.setValue(0);
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 65,
+          friction: 11,
+        }),
+        Animated.timing(backdropAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [showDetailModal]);
 
   const { data: stats } = useQuery({
     queryKey: ["vaultStats"],
@@ -265,16 +297,30 @@ export default function Home() {
   };
 
   const closeDetailModal = () => {
-    setShowDetailModal(false);
-    setSelectedItem(null);
-    setShowPassword(false);
-    setDecryptedPassword("");
-    setIsEditing(false);
+    Keyboard.dismiss();
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: SCREEN_HEIGHT,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setModalVisible(false);
+      setShowDetailModal(false);
+      setSelectedItem(null);
+      setShowPassword(false);
+      setDecryptedPassword("");
+      setIsEditing(false);
+    });
   };
 
   const togglePasswordVisibility = async () => {
     if (!selectedItem) return;
-
     if (showPassword) {
       setShowPassword(false);
       setDecryptedPassword("");
@@ -499,325 +545,442 @@ export default function Home() {
   };
 
   const renderDetailModal = () => {
-    if (!selectedItem) return null;
+    if (!selectedItem || !modalVisible) return null;
     const { icon, color } = getIcon(selectedItem.PlatformName);
 
     return (
-      <Modal visible={showDetailModal} animationType="slide" transparent>
-        <View className="flex-1 bg-black/50 justify-end">
-          <View className="bg-white rounded-t-3xl max-h-[90%]">
-            <View className="bg-blue-500 px-6 pt-6 pb-8 rounded-t-3xl">
-              <View className="flex-row justify-between items-start">
-                <View className="flex-row items-center flex-1">
-                  <View
-                    className="w-14 h-14 rounded-full items-center justify-center"
-                    style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
-                  >
-                    <Icon name={icon as any} size={28} color="white" />
-                  </View>
-                  <View className="ml-4 flex-1">
-                    <Text className="text-white/70 text-sm">
-                      {isEditing ? "Editing" : "Details for"}
-                    </Text>
-                    <Text className="text-white text-xl font-bold">
-                      {selectedItem.PlatformName}
-                    </Text>
-                    <Text className="text-white/80 text-sm">
-                      {selectedItem.EntryKey}
-                    </Text>
+      <Modal
+        visible={modalVisible}
+        animationType="none"
+        transparent
+        statusBarTranslucent
+        onRequestClose={closeDetailModal}
+      >
+        <View style={{ flex: 1 }}>
+          <Animated.View
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0,0,0,0.5)",
+              opacity: backdropAnim,
+            }}
+          >
+            <Pressable style={{ flex: 1 }} onPress={closeDetailModal} />
+          </Animated.View>
+
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={{ flex: 1, justifyContent: "flex-end" }}
+            keyboardVerticalOffset={0}
+          >
+            <Animated.View
+              style={{
+                maxHeight: SCREEN_HEIGHT * 0.92,
+                transform: [{ translateY: slideAnim }],
+              }}
+            >
+              <View
+                className="bg-white rounded-t-3xl overflow-hidden"
+                style={{
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: -4 },
+                  shadowOpacity: 0.15,
+                  shadowRadius: 12,
+                  elevation: 20,
+                }}
+              >
+                <View className="items-center pt-3 pb-1">
+                  <View className="w-10 h-1 bg-gray-300 rounded-full" />
+                </View>
+
+                <View
+                  className="px-6 pt-4 pb-8 rounded-t-3xl"
+                  style={{ backgroundColor: color || "#3B82F6" }}
+                >
+                  <View className="flex-row justify-between items-start">
+                    <View className="flex-row items-center flex-1">
+                      <View
+                        className="w-16 h-16 rounded-2xl items-center justify-center"
+                        style={{ backgroundColor: "rgba(255,255,255,0.25)" }}
+                      >
+                        <Icon name={icon as any} size={32} color="white" />
+                      </View>
+                      <View className="ml-4 flex-1">
+                        <Text className="text-white/80 text-xs uppercase tracking-wider font-medium">
+                          {isEditing ? " Editing" : " Credentials"}
+                        </Text>
+                        <Text
+                          className="text-white text-2xl font-bold mt-1"
+                          numberOfLines={1}
+                        >
+                          {selectedItem.PlatformName}
+                        </Text>
+                        <Text
+                          className="text-white/90 text-sm mt-0.5"
+                          numberOfLines={1}
+                        >
+                          {selectedItem.EntryKey}
+                        </Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      onPress={closeDetailModal}
+                      className="p-2 rounded-full"
+                      style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+                    >
+                      <Icon name="close" size={22} color="white" />
+                    </TouchableOpacity>
                   </View>
                 </View>
-                <TouchableOpacity onPress={closeDetailModal} className="p-2">
-                  <Icon name="close" size={24} color="white" />
-                </TouchableOpacity>
-              </View>
-            </View>
 
-            <ScrollView
-              className="px-6 -mt-4"
-              showsVerticalScrollIndicator={false}
-            >
-              <View className="bg-white rounded-2xl p-4 shadow-sm mb-4 border border-gray-100">
-                {isEditing ? (
-                  <>
-                    <Text className="text-sm font-semibold text-gray-700 mb-2">
-                      {" "}
-                      Title
-                    </Text>
-                    <TextInput
-                      value={editData.entryKey}
-                      onChangeText={(text) =>
-                        setEditData({ ...editData, entryKey: text })
-                      }
-                      placeholder="Title"
-                      className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 mb-4"
-                    />
-
-                    <Text className="text-sm font-semibold text-gray-700 mb-2">
-                      {" "}
-                      Username / Email
-                    </Text>
-                    <TextInput
-                      value={editData.identifier}
-                      onChangeText={(text) =>
-                        setEditData({ ...editData, identifier: text })
-                      }
-                      placeholder="Username or email"
-                      autoCapitalize="none"
-                      className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 mb-4"
-                    />
-
-                    <Text className="text-sm font-semibold text-gray-700 mb-2">
-                      {" "}
-                      New Password (optional)
-                    </Text>
-                    <TextInput
-                      value={editData.password}
-                      onChangeText={(text) =>
-                        setEditData({ ...editData, password: text })
-                      }
-                      placeholder="Leave blank to keep current"
-                      secureTextEntry
-                      className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 mb-4"
-                    />
-
-                    <Text className="text-sm font-semibold text-gray-700 mb-2">
-                      {" "}
-                      Website URL
-                    </Text>
-                    <TextInput
-                      value={editData.website}
-                      onChangeText={(text) =>
-                        setEditData({ ...editData, website: text })
-                      }
-                      placeholder="https://example.com"
-                      autoCapitalize="none"
-                      keyboardType="url"
-                      className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 mb-4"
-                    />
-
-                    <Text className="text-sm font-semibold text-gray-700 mb-2">
-                      {" "}
-                      Notes
-                    </Text>
-                    <TextInput
-                      value={editData.notes}
-                      onChangeText={(text) =>
-                        setEditData({ ...editData, notes: text })
-                      }
-                      placeholder="Additional notes"
-                      multiline
-                      numberOfLines={3}
-                      textAlignVertical="top"
-                      className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 min-h-[80px]"
-                    />
-                  </>
-                ) : (
-                  <>
-                    <View className="mb-4">
-                      <Text className="text-sm font-semibold text-gray-700 mb-2">
-                        {" "}
-                        Password
-                      </Text>
-                      <View className="flex-row items-center bg-gray-50 rounded-xl p-4 border border-gray-200">
-                        <Text className="flex-1 font-mono text-lg text-gray-800">
-                          {showPassword ? decryptedPassword : "••••••••••••"}
+                <ScrollView
+                  className="px-5"
+                  style={{ marginTop: -16 }}
+                  showsVerticalScrollIndicator={false}
+                  bounces={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <View
+                    className="bg-white rounded-2xl p-5 mb-4"
+                    style={{
+                      shadowColor: "#000",
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.08,
+                      shadowRadius: 8,
+                      elevation: 4,
+                    }}
+                  >
+                    {isEditing ? (
+                      <>
+                        <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                          Title
                         </Text>
-                        <TouchableOpacity
-                          onPress={togglePasswordVisibility}
-                          disabled={isDecrypting}
-                          className="p-2 mr-2"
-                        >
-                          {isDecrypting ? (
-                            <ActivityIndicator size="small" color="#3B82F6" />
-                          ) : (
-                            <Icon
-                              name={showPassword ? "eye-off" : "eye"}
-                              size={22}
-                              color="#3B82F6"
-                            />
-                          )}
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => handleCopyPassword(selectedItem)}
-                          className="p-2"
-                        >
-                          <Icon name="content-copy" size={22} color="#3B82F6" />
-                        </TouchableOpacity>
-                      </View>
+                        <TextInput
+                          value={editData.entryKey}
+                          onChangeText={(text) =>
+                            setEditData({ ...editData, entryKey: text })
+                          }
+                          placeholder="Title"
+                          className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 mb-4 text-base"
+                          placeholderTextColor="#9CA3AF"
+                        />
 
-                      {selectedItem.IsBreached && (
-                        <View className="mt-2 bg-red-50 border border-red-200 rounded-lg p-3 flex-row items-center">
-                          <Icon name="alert-circle" size={20} color="#EF4444" />
-                          <View className="ml-2 flex-1">
-                            <Text className="text-red-700 font-medium">
-                              Password Compromised!
-                            </Text>
-                            <Text className="text-red-600 text-xs">
-                              Found in{" "}
-                              {selectedItem.BreachCount?.toLocaleString()} data
-                              breaches. Change it immediately.
-                            </Text>
-                          </View>
-                        </View>
-                      )}
-                    </View>
-
-                    {selectedItem.MetaData?.identifier && (
-                      <View className="mb-4">
-                        <Text className="text-sm font-semibold text-gray-700 mb-2">
-                          {" "}
+                        <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
                           Username / Email
                         </Text>
-                        <View className="bg-gray-50 rounded-xl p-4 border border-gray-200 flex-row items-center">
-                          <Text className="flex-1 text-gray-800">
-                            {selectedItem.MetaData.identifier}
+                        <TextInput
+                          value={editData.identifier}
+                          onChangeText={(text) =>
+                            setEditData({ ...editData, identifier: text })
+                          }
+                          placeholder="Username or email"
+                          autoCapitalize="none"
+                          className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 mb-4 text-base"
+                          placeholderTextColor="#9CA3AF"
+                        />
+
+                        <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                          New Password (optional)
+                        </Text>
+                        <TextInput
+                          value={editData.password}
+                          onChangeText={(text) =>
+                            setEditData({ ...editData, password: text })
+                          }
+                          placeholder="Leave blank to keep current"
+                          secureTextEntry
+                          className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 mb-4 text-base"
+                          placeholderTextColor="#9CA3AF"
+                        />
+
+                        <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                          Website URL
+                        </Text>
+                        <TextInput
+                          value={editData.website}
+                          onChangeText={(text) =>
+                            setEditData({ ...editData, website: text })
+                          }
+                          placeholder="https://example.com"
+                          autoCapitalize="none"
+                          keyboardType="url"
+                          className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 mb-4 text-base"
+                          placeholderTextColor="#9CA3AF"
+                        />
+
+                        <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                          Notes
+                        </Text>
+                        <TextInput
+                          value={editData.notes}
+                          onChangeText={(text) =>
+                            setEditData({ ...editData, notes: text })
+                          }
+                          placeholder="Additional notes"
+                          multiline
+                          numberOfLines={3}
+                          textAlignVertical="top"
+                          className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 min-h-[100px] text-base"
+                          placeholderTextColor="#9CA3AF"
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <View className="mb-5">
+                          <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                            Password
                           </Text>
-                          <TouchableOpacity
-                            onPress={async () => {
-                              await Clipboard.setStringAsync(
-                                selectedItem.MetaData?.identifier || "",
-                              );
-                              Alert.alert(
-                                "Copied!",
-                                "Username copied to clipboard",
-                              );
-                            }}
-                            className="p-2"
-                          >
+                          <View className="flex-row items-center bg-gray-50 rounded-xl p-4 border border-gray-100">
+                            <Text className="flex-1 font-mono text-lg text-gray-800">
+                              {showPassword
+                                ? decryptedPassword
+                                : "••••••••••••"}
+                            </Text>
+                            <TouchableOpacity
+                              onPress={togglePasswordVisibility}
+                              disabled={isDecrypting}
+                              className="p-2.5 mr-1 rounded-lg bg-blue-50"
+                            >
+                              {isDecrypting ? (
+                                <ActivityIndicator
+                                  size="small"
+                                  color="#3B82F6"
+                                />
+                              ) : (
+                                <Icon
+                                  name={showPassword ? "eye-off" : "eye"}
+                                  size={20}
+                                  color="#3B82F6"
+                                />
+                              )}
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => handleCopyPassword(selectedItem)}
+                              className="p-2.5 rounded-lg bg-blue-50"
+                            >
+                              <Icon
+                                name="content-copy"
+                                size={20}
+                                color="#3B82F6"
+                              />
+                            </TouchableOpacity>
+                          </View>
+
+                          {selectedItem.IsBreached && (
+                            <View className="mt-3 bg-red-50 border border-red-200 rounded-xl p-4 flex-row items-center">
+                              <View className="bg-red-100 p-2 rounded-full">
+                                <Icon
+                                  name="alert-circle"
+                                  size={20}
+                                  color="#EF4444"
+                                />
+                              </View>
+                              <View className="ml-3 flex-1">
+                                <Text className="text-red-700 font-bold">
+                                  Password Compromised!
+                                </Text>
+                                <Text className="text-red-600 text-xs mt-0.5">
+                                  Found in{" "}
+                                  {selectedItem.BreachCount?.toLocaleString()}{" "}
+                                  data breaches. Change it immediately.
+                                </Text>
+                              </View>
+                            </View>
+                          )}
+                        </View>
+
+                        {selectedItem.MetaData?.identifier && (
+                          <View className="mb-5">
+                            <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                              Username / Email
+                            </Text>
+                            <View className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex-row items-center">
+                              <Icon
+                                name="account-outline"
+                                size={20}
+                                color="#6B7280"
+                              />
+                              <Text className="flex-1 text-gray-800 ml-3">
+                                {selectedItem.MetaData.identifier}
+                              </Text>
+                              <TouchableOpacity
+                                onPress={async () => {
+                                  await Clipboard.setStringAsync(
+                                    selectedItem.MetaData?.identifier || "",
+                                  );
+                                  Alert.alert(
+                                    "Copied!",
+                                    "Username copied to clipboard",
+                                  );
+                                }}
+                                className="p-2 rounded-lg bg-gray-100"
+                              >
+                                <Icon
+                                  name="content-copy"
+                                  size={18}
+                                  color="#6B7280"
+                                />
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        )}
+
+                        {selectedItem.MetaData?.website && (
+                          <View className="mb-5">
+                            <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                              Website
+                            </Text>
+                            <View className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex-row items-center">
+                              <Icon name="web" size={20} color="#3B82F6" />
+                              <Text className="text-blue-600 ml-3 flex-1">
+                                {selectedItem.MetaData.website}
+                              </Text>
+                            </View>
+                          </View>
+                        )}
+
+                        {selectedItem.MetaData?.category && (
+                          <View className="mb-5">
+                            <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                              Category
+                            </Text>
+                            <View className="bg-blue-50 rounded-xl px-4 py-3 self-start border border-blue-100 flex-row items-center">
+                              <Icon
+                                name="tag-outline"
+                                size={18}
+                                color="#3B82F6"
+                              />
+                              <Text className="text-blue-700 font-medium ml-2">
+                                {selectedItem.MetaData.category}
+                              </Text>
+                            </View>
+                          </View>
+                        )}
+
+                        {selectedItem.MetaData?.notes && (
+                          <View className="mb-5">
+                            <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                              Notes
+                            </Text>
+                            <View className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                              <Text className="text-gray-700 leading-5">
+                                {selectedItem.MetaData.notes}
+                              </Text>
+                            </View>
+                          </View>
+                        )}
+
+                        <View className="mb-2">
+                          <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                            Created
+                          </Text>
+                          <View className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex-row items-center">
                             <Icon
-                              name="content-copy"
+                              name="calendar-outline"
                               size={20}
                               color="#6B7280"
                             />
-                          </TouchableOpacity>
+                            <Text className="text-gray-600 ml-3">
+                              {new Date(
+                                selectedItem.CreatedAt,
+                              ).toLocaleDateString("en-US", {
+                                year: "numeric",
+                                month: "long",
+                                day: "numeric",
+                              })}
+                            </Text>
+                          </View>
                         </View>
-                      </View>
+                      </>
                     )}
+                  </View>
 
-                    {selectedItem.MetaData?.website && (
-                      <View className="mb-4">
-                        <Text className="text-sm font-semibold text-gray-700 mb-2">
-                          {" "}
-                          Website
-                        </Text>
-                        <View className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                          <Text className="text-blue-600">
-                            {selectedItem.MetaData.website}
+                  <View className="flex-row gap-3 mb-8 pb-4">
+                    {isEditing ? (
+                      <>
+                        <TouchableOpacity
+                          onPress={() => setIsEditing(false)}
+                          className="flex-1 bg-gray-100 py-4 rounded-2xl items-center flex-row justify-center"
+                          activeOpacity={0.7}
+                        >
+                          <Icon name="close" size={20} color="#6B7280" />
+                          <Text className="text-gray-700 font-bold ml-2">
+                            Cancel
                           </Text>
-                        </View>
-                      </View>
-                    )}
-
-                    {selectedItem.MetaData?.category && (
-                      <View className="mb-4">
-                        <Text className="text-sm font-semibold text-gray-700 mb-2">
-                          {" "}
-                          Category
-                        </Text>
-                        <View className="bg-blue-50 rounded-xl px-4 py-2 self-start border border-blue-200">
-                          <Text className="text-blue-700">
-                            {selectedItem.MetaData.category}
-                          </Text>
-                        </View>
-                      </View>
-                    )}
-
-                    {selectedItem.MetaData?.notes && (
-                      <View className="mb-4">
-                        <Text className="text-sm font-semibold text-gray-700 mb-2">
-                          {" "}
-                          Notes
-                        </Text>
-                        <View className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                          <Text className="text-gray-700">
-                            {selectedItem.MetaData.notes}
-                          </Text>
-                        </View>
-                      </View>
-                    )}
-
-                    <View className="mb-4">
-                      <Text className="text-sm font-semibold text-gray-700 mb-2">
-                        {" "}
-                        Created
-                      </Text>
-                      <View className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                        <Text className="text-gray-600">
-                          {new Date(selectedItem.CreatedAt).toLocaleDateString(
-                            "en-US",
-                            {
-                              year: "numeric",
-                              month: "long",
-                              day: "numeric",
-                            },
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={handleSaveEdit}
+                          disabled={isSaving}
+                          className={`flex-1 py-4 rounded-2xl items-center flex-row justify-center ${
+                            isSaving ? "bg-gray-400" : "bg-blue-500"
+                          }`}
+                          activeOpacity={0.7}
+                          style={{
+                            shadowColor: "#3B82F6",
+                            shadowOffset: { width: 0, height: 4 },
+                            shadowOpacity: 0.3,
+                            shadowRadius: 8,
+                            elevation: 4,
+                          }}
+                        >
+                          {isSaving ? (
+                            <ActivityIndicator size="small" color="white" />
+                          ) : (
+                            <>
+                              <Icon name="check" size={20} color="white" />
+                              <Text className="text-white font-bold ml-2">
+                                Save Changes
+                              </Text>
+                            </>
                           )}
-                        </Text>
-                      </View>
-                    </View>
-                  </>
-                )}
-              </View>
-
-              <View className="flex-row gap-3 mb-8">
-                {isEditing ? (
-                  <>
-                    <TouchableOpacity
-                      onPress={() => setIsEditing(false)}
-                      className="flex-1 bg-gray-100 py-4 rounded-xl items-center flex-row justify-center"
-                    >
-                      <Icon name="close" size={20} color="#6B7280" />
-                      <Text className="text-gray-700 font-semibold ml-2">
-                        Cancel
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={handleSaveEdit}
-                      disabled={isSaving}
-                      className={`flex-1 py-4 rounded-xl items-center flex-row justify-center ${
-                        isSaving ? "bg-gray-400" : "bg-blue-500"
-                      }`}
-                    >
-                      {isSaving ? (
-                        <ActivityIndicator size="small" color="white" />
-                      ) : (
-                        <>
-                          <Icon name="check" size={20} color="white" />
-                          <Text className="text-white font-semibold ml-2">
-                            Save
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <>
+                        <TouchableOpacity
+                          onPress={() => setIsEditing(true)}
+                          className="flex-1 bg-blue-500 py-4 rounded-2xl items-center flex-row justify-center"
+                          activeOpacity={0.7}
+                          style={{
+                            shadowColor: "#3B82F6",
+                            shadowOffset: { width: 0, height: 4 },
+                            shadowOpacity: 0.3,
+                            shadowRadius: 8,
+                            elevation: 4,
+                          }}
+                        >
+                          <Icon name="pencil" size={20} color="white" />
+                          <Text className="text-white font-bold ml-2">
+                            Edit
                           </Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  </>
-                ) : (
-                  <>
-                    <TouchableOpacity
-                      onPress={() => setIsEditing(true)}
-                      className="flex-1 bg-blue-500 py-4 rounded-xl items-center flex-row justify-center"
-                    >
-                      <Icon name="pencil" size={20} color="white" />
-                      <Text className="text-white font-semibold ml-2">
-                        Edit
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => {
-                        closeDetailModal();
-                        handleDelete(selectedItem);
-                      }}
-                      className="flex-1 bg-red-50 py-4 rounded-xl items-center flex-row justify-center border border-red-200"
-                    >
-                      <Icon name="delete-outline" size={20} color="#EF4444" />
-                      <Text className="text-red-500 font-semibold ml-2">
-                        Delete
-                      </Text>
-                    </TouchableOpacity>
-                  </>
-                )}
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => {
+                            closeDetailModal();
+                            handleDelete(selectedItem);
+                          }}
+                          className="flex-1 bg-red-50 py-4 rounded-2xl items-center flex-row justify-center border-2 border-red-200"
+                          activeOpacity={0.7}
+                        >
+                          <Icon
+                            name="delete-outline"
+                            size={20}
+                            color="#EF4444"
+                          />
+                          <Text className="text-red-500 font-bold ml-2">
+                            Delete
+                          </Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                  </View>
+                </ScrollView>
               </View>
-            </ScrollView>
-          </View>
+            </Animated.View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     );
